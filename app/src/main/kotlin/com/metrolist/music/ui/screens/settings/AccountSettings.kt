@@ -13,13 +13,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -54,7 +49,6 @@ import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.utils.parseCookieString
-import com.metrolist.music.BuildConfig
 import com.metrolist.music.R
 import com.metrolist.music.constants.AccountChannelHandleKey
 import com.metrolist.music.constants.AccountEmailKey
@@ -68,21 +62,19 @@ import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.InfoLabel
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
-import com.metrolist.music.ui.component.PreferenceEntry
 import com.metrolist.music.ui.component.TextFieldDialog
-import com.metrolist.music.utils.Updater
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.AccountSettingsViewModel
 import com.metrolist.music.viewmodels.HomeViewModel
 
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun AccountSettings(
     navController: NavController,
     onClose: () -> Unit,
     latestVersionName: String
 ) {
     val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
 
     val (accountNamePref, onAccountNameChange) = rememberPreference(AccountNameKey, "")
     val (accountEmail, onAccountEmailChange) = rememberPreference(AccountEmailKey, "")
@@ -109,8 +101,8 @@ fun AccountSettings(
 
     Column(
         modifier = Modifier
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .padding(16.dp)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(20.dp)
             .verticalScroll(rememberScrollState())
     ) {
         Row(
@@ -120,8 +112,8 @@ fun AccountSettings(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = stringResource(id = R.string.app_name),
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                text = stringResource(id = R.string.account_settings),
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 modifier = Modifier.padding(start = 4.dp)
             )
             Spacer(modifier = Modifier.weight(1f))
@@ -243,28 +235,30 @@ fun AccountSettings(
         }
 
         Material3SettingsGroup(
+            title = stringResource(R.string.youtube_music_account),
             items = listOf(
                 Material3SettingsItem(
-                    title = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (isLoggedIn && accountImageUrl != null) {
-                                AsyncImage(
-                                    model = accountImageUrl,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.size(40.dp).clip(CircleShape)
-                                )
-
-                                Spacer(Modifier.width(12.dp))
-                            }
-
-                            Text(
-                                text = if (isLoggedIn) accountName else stringResource(R.string.login),
+                    leadingContent = if (isLoggedIn && accountImageUrl != null) {
+                        {
+                            AsyncImage(
+                                model = accountImageUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(48.dp).clip(CircleShape)
                             )
                         }
+                    } else null,
+                    title = {
+                        Text(text = if (isLoggedIn) accountName else stringResource(R.string.login))
                     },
+                    description = if (isLoggedIn && (accountEmail.isNotBlank() || accountChannelHandle.isNotBlank())) {
+                        {
+                            Text(
+                                text = accountEmail.ifBlank { accountChannelHandle },
+                                maxLines = 1
+                            )
+                        }
+                    } else null,
                     icon = if (!isLoggedIn) painterResource(R.drawable.login) else null,
                     trailingContent = {
                         if (isLoggedIn) {
@@ -367,70 +361,30 @@ fun AccountSettings(
 
         Spacer(Modifier.height(12.dp))
 
-        Column(
-            modifier = Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-        ) {
-            PreferenceEntry(
-                title = { Text(stringResource(R.string.integrations)) },
-                icon = { Icon(painterResource(R.drawable.integration), null) },
-                onClick = {
-                    onClose()
-                    navController.navigate("settings/integrations")
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainer)
-            )
-
-            Spacer(Modifier.height(4.dp))
-
-            PreferenceEntry(
-                title = { Text(stringResource(R.string.settings)) },
-                icon = {
-                    BadgedBox(
-                        badge = {
-                            if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.VERSION_NAME) {
-                                Badge()
-                            }
-                        }
-                    ) {
-                        Icon(painterResource(R.drawable.settings), contentDescription = null)
+        Material3SettingsGroup(
+            title = stringResource(R.string.account_shortcuts),
+            items = listOf(
+                Material3SettingsItem(
+                    title = { Text(stringResource(R.string.integrations)) },
+                    description = { Text(stringResource(R.string.integrations_description)) },
+                    icon = painterResource(R.drawable.integration),
+                    onClick = {
+                        onClose()
+                        navController.navigate("settings/integrations")
                     }
-                },
-                onClick = {
-                    onClose()
-                    navController.navigate("settings")
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainer)
-            )
+                ),
+                Material3SettingsItem(
+                    title = { Text(stringResource(R.string.settings)) },
+                    icon = painterResource(R.drawable.settings),
+                    onClick = {
+                        onClose()
+                        navController.navigate("settings")
+                    }
+                )
+            ),
+            useLowContrast = true
+        )
 
-            Spacer(Modifier.height(4.dp))
-
-            if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.VERSION_NAME) {
-                val releaseInfo = Updater.getCachedLatestRelease()
-                val downloadUrl = releaseInfo?.let { Updater.getDownloadUrlForCurrentVariant(it) }
-                
-                if (downloadUrl != null) {
-                    PreferenceEntry(
-                        title = {
-                            Text(text = stringResource(R.string.new_version_available))
-                        },
-                        description = latestVersionName,
-                        icon = {
-                            BadgedBox(badge = { Badge() }) {
-                                Icon(painterResource(R.drawable.update), null)
-                            }
-                        },
-                        onClick = {
-                            uriHandler.openUri(downloadUrl)
-                        }
-                    )
-                }
-            }
-        }
+        Spacer(Modifier.height(8.dp))
     }
 }

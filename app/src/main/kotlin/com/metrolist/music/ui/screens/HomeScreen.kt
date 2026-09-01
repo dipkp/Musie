@@ -7,6 +7,7 @@ package com.metrolist.music.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -54,6 +55,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
+import androidx.compose.material3.carousel.HorizontalCenteredHeroCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator
@@ -82,8 +84,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -116,8 +116,6 @@ import com.metrolist.music.constants.InnerTubeCookieKey
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.ListThumbnailSize
 import com.metrolist.music.constants.RandomizeHomeOrderKey
-import com.metrolist.music.constants.ShowPlayRandomButtonKey
-import com.metrolist.music.constants.ShowRecognizeButtonKey
 import com.metrolist.music.constants.SmallGridThumbnailHeight
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.db.entities.Album
@@ -128,10 +126,9 @@ import com.metrolist.music.db.entities.PlaylistEntity
 import com.metrolist.music.db.entities.PlaylistSongMap
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
-import com.metrolist.music.playback.queues.LocalAlbumRadio
-import com.metrolist.music.playback.queues.YouTubeAlbumRadio
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.models.SectionType
 import com.metrolist.music.playback.SpotifyYouTubeMapper
@@ -143,7 +140,6 @@ import com.metrolist.music.ui.component.YouTubeListItem
 import com.metrolist.music.ui.component.AlbumGridItem
 import com.metrolist.music.ui.component.ArtistGridItem
 import com.metrolist.music.ui.component.ChipsRow
-import com.metrolist.music.ui.component.HideOnScrollFAB
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.menu.SpotifyPlaylistMenu
@@ -214,6 +210,35 @@ sealed class HomeSection(
     ) : HomeSection("home_page_section_$index", 10)
 
     data object MoodAndGenres : HomeSection("mood_and_genres", 5)
+}
+
+private data class ClassicHeroSong(
+    val metadata: MediaMetadata,
+    val localSong: Song? = null,
+    val youtubeSong: SongItem? = null,
+)
+
+private fun ClassicHeroSong.recommendationKey(): String {
+    val normalizedTitle =
+        metadata.title
+            .lowercase()
+            .replace(Regex("[\\[(].*?[\\])]"), " ")
+            .replace(
+                Regex(
+                    "\\b(official|music|video|audio|lyrics?|lyrical|acoustic|remastered|visualizer|hd|4k)\\b",
+                ),
+                " ",
+            )
+            .replace(Regex("[^a-z0-9]+"), " ")
+            .trim()
+    val primaryArtist =
+        metadata.artists
+            .firstOrNull()
+            ?.name
+            .orEmpty()
+            .lowercase()
+            .replace(Regex("[^a-z0-9]+"), "")
+    return "$normalizedTitle|$primaryArtist"
 }
 
 @Composable
@@ -672,8 +697,26 @@ fun HomeScreen(
     val dailyDiscover by viewModel.dailyDiscover.collectAsState()
     val communityPlaylists by viewModel.communityPlaylists.collectAsState()
 
-    val allLocalItems by viewModel.allLocalItems.collectAsState()
-    val allYtItems by viewModel.allYtItems.collectAsState()
+    val classicHeroSongs =
+        remember(quickPicks, recentlyPlayed, homePage?.sections) {
+            buildList {
+                quickPicks.orEmpty().forEach { song ->
+                    add(ClassicHeroSong(metadata = song.toMediaMetadata(), localSong = song))
+                }
+                recentlyPlayed.orEmpty().forEach { song ->
+                    add(ClassicHeroSong(metadata = song.toMediaMetadata(), localSong = song))
+                }
+                homePage
+                    ?.sections
+                    .orEmpty()
+                    .flatMap { it.items }
+                    .filterIsInstance<SongItem>()
+                    .forEach { song ->
+                        add(ClassicHeroSong(metadata = song.toMediaMetadata(), youtubeSong = song))
+                    }
+            }.distinctBy(ClassicHeroSong::recommendationKey).take(12)
+        }
+
     val speedDialItems by viewModel.speedDialItems.collectAsState()
     val pinnedSpeedDialItems by viewModel.pinnedSpeedDialItems.collectAsState()
     val selectedChip by viewModel.selectedChip.collectAsState()
@@ -782,9 +825,6 @@ fun HomeScreen(
 
     // Track randomization job
     var randomizeJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-
-    val (showRecognizeButton) = rememberPreference(ShowRecognizeButtonKey, defaultValue = true)
-    val (showPlayRandomButton) = rememberPreference(ShowPlayRandomButtonKey, defaultValue = true)
 
     val lazylistState = rememberLazyListState()
     val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
@@ -1072,11 +1112,7 @@ fun HomeScreen(
 
             if (recentlyPlayed?.isNotEmpty() == true) list.add(HomeSection.RecentlyPlayed)
 
-            // Show speed dial when we have pinned items (including when Spotify-only home is on)
-            if (speedDialItems.isNotEmpty()) list.add(HomeSection.SpeedDial)
-
             if (!isSpotifyHomeOnly && !chipActive) {
-                if (quickPicks?.isNotEmpty() == true) list.add(HomeSection.QuickPicks)
                 if (communityPlaylists?.isNotEmpty() == true) list.add(HomeSection.FromTheCommunity)
                 if (dailyDiscover?.isNotEmpty() == true) list.add(HomeSection.DailyDiscover)
                 if (keepListening?.isNotEmpty() == true) list.add(HomeSection.KeepListening)
@@ -1242,6 +1278,144 @@ fun HomeScreen(
                         }
                     }
                 }
+
+                classicHeroSongs
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { heroSongs ->
+                        item(key = "classic_home_hero") {
+                            val carouselState = rememberCarouselState { heroSongs.size }
+
+                            HorizontalCenteredHeroCarousel(
+                                state = carouselState,
+                                maxItemWidth = 250.dp,
+                                itemSpacing = 8.dp,
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(290.dp)
+                                        .animateItem(),
+                            ) { index ->
+                                val heroSong = heroSongs[index]
+                                val song = heroSong.metadata
+                                val isActive = song.id == mediaMetadata?.id
+
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .fillMaxSize()
+                                            .maskClip(MaterialTheme.shapes.extraLarge)
+                                            .combinedClickable(
+                                                onClick = {
+                                                    if (!isListenTogetherGuest) {
+                                                        scope.launch {
+                                                            if (carouselState.currentItem != index) {
+                                                                carouselState.animateScrollToItem(
+                                                                    item = index,
+                                                                    animationSpec = tween(durationMillis = 500),
+                                                                )
+                                                            }
+                                                            if (isActive) {
+                                                                playerConnection.togglePlayPause()
+                                                            } else {
+                                                                playerConnection.playQueue(YouTubeQueue.radio(song))
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                onLongClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    when {
+                                                        heroSong.localSong != null -> menuState.show {
+                                                            SongMenu(
+                                                                originalSong = heroSong.localSong,
+                                                                navController = navController,
+                                                                onDismiss = menuState::dismiss,
+                                                            )
+                                                        }
+
+                                                        heroSong.youtubeSong != null -> menuState.show {
+                                                            YouTubeSongMenu(
+                                                                song = heroSong.youtubeSong,
+                                                                navController = navController,
+                                                                onDismiss = menuState::dismiss,
+                                                            )
+                                                        }
+                                                    }
+                                                },
+                                            ),
+                                ) {
+                                    AsyncImage(
+                                        model =
+                                            ImageRequest.Builder(LocalContext.current)
+                                                .data(song.thumbnailUrl)
+                                                .crossfade(true)
+                                                .build(),
+                                        contentDescription = song.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+
+                                    Box(
+                                        modifier =
+                                            Modifier
+                                                .fillMaxSize()
+                                                .background(
+                                                    Brush.verticalGradient(
+                                                        colors =
+                                                            listOf(
+                                                                Color.Transparent,
+                                                                Color.Transparent,
+                                                                Color.Black.copy(alpha = 0.75f),
+                                                            ),
+                                                    ),
+                                                ),
+                                    )
+
+                                    if (isActive && isPlaying) {
+                                        Box(
+                                            modifier =
+                                                Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(12.dp)
+                                                    .size(32.dp)
+                                                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.volume_up),
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        }
+                                    }
+
+                                    Column(
+                                        modifier =
+                                            Modifier
+                                                .align(Alignment.BottomStart)
+                                                .padding(16.dp),
+                                    ) {
+                                        Text(
+                                            text = song.title,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            text = song.artists.joinToString { it.name },
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color.White.copy(alpha = 0.75f),
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                 // Show podcast sections FIRST when podcast chip is selected (fixed at top)
                 if (selectedChip?.title?.contains("Podcast", ignoreCase = true) == true) {
@@ -1425,9 +1599,9 @@ fun HomeScreen(
                                     if (isWrappedDataReady) {
                                         val bbhFont =
                                             try {
-                                                FontFamily(Font(R.font.bbh_bartle_regular))
+                                                com.metrolist.music.ui.theme.spotifyMixTitle
                                             } catch (e: Exception) {
-                                                FontFamily.Default
+                                                com.metrolist.music.ui.theme.spotifyMixTitle
                                             }
                                         Column(
                                             modifier = Modifier.padding(16.dp),
@@ -2792,86 +2966,6 @@ fun HomeScreen(
                 }
             }
 
-            HideOnScrollFAB(
-                visible = allLocalItems.isNotEmpty() || allYtItems.isNotEmpty(),
-                lazyListState = lazylistState,
-                icon = R.drawable.shuffle,
-                onClick = {
-                    if (!isListenTogetherGuest) {
-                        val local =
-                            when {
-                                allLocalItems.isNotEmpty() && allYtItems.isNotEmpty() -> Random.nextFloat() < 0.5
-                                allLocalItems.isNotEmpty() -> true
-                                else -> false
-                            }
-                        scope.launch(Dispatchers.Main) {
-                            if (local) {
-                                when (val luckyItem = allLocalItems.random()) {
-                                    is Song -> {
-                                        playerConnection.playQueue(YouTubeQueue.radio(luckyItem.toMediaMetadata()))
-                                    }
-
-                                    is Album -> {
-                                        val albumWithSongs =
-                                            withContext(Dispatchers.IO) {
-                                                database.albumWithSongs(luckyItem.id).first()
-                                            }
-                                        albumWithSongs?.let {
-                                            playerConnection.playQueue(LocalAlbumRadio(it))
-                                        }
-                                    }
-
-                                    is Artist -> {}
-
-                                    is Playlist -> {}
-                                }
-                            } else {
-                                when (val luckyItem = allYtItems.random()) {
-                                    is SongItem -> {
-                                        playerConnection.playQueue(YouTubeQueue.radio(luckyItem.toMediaMetadata()))
-                                    }
-
-                                    is AlbumItem -> {
-                                        playerConnection.playQueue(YouTubeAlbumRadio(luckyItem.playlistId))
-                                    }
-
-                                    is ArtistItem -> {
-                                        luckyItem.radioEndpoint?.let {
-                                            playerConnection.playQueue(YouTubeQueue(it))
-                                        }
-                                    }
-
-                                    is PlaylistItem -> {
-                                        luckyItem.playEndpoint?.let {
-                                            playerConnection.playQueue(YouTubeQueue(it))
-                                        }
-                                    }
-
-                                    is PodcastItem -> {
-                                        luckyItem.playEndpoint?.let {
-                                            playerConnection.playQueue(YouTubeQueue(it))
-                                        }
-                                    }
-
-                                    is EpisodeItem -> {
-                                        playerConnection.playQueue(
-                                            ListQueue(
-                                                title = luckyItem.title,
-                                                items = listOf(luckyItem.toMediaMetadata().toMediaItem()),
-                                            ),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                onRecognitionClick = {
-                    navController.navigate("recognition")
-                },
-                showRecognition = showRecognizeButton,
-                showMainAction = showPlayRandomButton,
-            )
         }
     }
 }

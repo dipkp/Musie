@@ -1,20 +1,34 @@
 package com.metrolist.spotify
 
 import com.metrolist.spotify.models.SpotifyInternalToken
+import com.metrolist.spotify.models.SpotifyToken
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.forms.FormDataContent
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.Parameters
+import io.ktor.http.URLBuilder
+import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.math.floor
 
 /**
- * Handles Spotify authentication using the web player's internal token endpoint.
- * Uses sp_dc cookies (extracted from WebView login) to obtain access tokens
- * without requiring a Spotify Developer Client ID.
+ * Handles official OAuth Authorization Code + PKCE authentication and the
+ * legacy web-player session fallback used by existing installations.
  *
  * Token acquisition requires a TOTP (Time-based One-Time Password) generated
  * from a shared secret that Spotify rotates periodically. The secret and its
@@ -23,8 +37,11 @@ import kotlin.math.floor
  * Reference: https://github.com/sonic-liberation/spotube-plugin-spotify
  */
 object SpotifyAuth {
-    private const val TOKEN_URL = "https://open.spotify.com/api/token"
+    private const val INTERNAL_TOKEN_URL = "https://open.spotify.com/api/token"
     private const val SERVER_TIME_URL = "https://open.spotify.com/api/server-time"
+    private const val AUTHORIZATION_URL = "https://accounts.spotify.com/authorize"
+    private const val OAUTH_TOKEN_URL = "https://accounts.spotify.com/api/token"
+    const val REDIRECT_URI = "meld://spotify/callback"
     private const val NUANCE_GIST_URL =
         "https://api.github.com/gists/22ed9c6ba463899e933427f7de1f0eef"
     private const val USER_AGENT =
@@ -32,9 +49,99 @@ object SpotifyAuth {
 
     const val LOGIN_URL = "https://accounts.spotify.com/login?continue=https%3A%2F%2Fopen.spotify.com%2F"
 
+    private val scopes = listOf(
+        "user-read-private",
+        "user-read-email",
+        "playlist-read-private",
+        "playlist-read-collaborative",
+        "playlist-modify-private",
+        "playlist-modify-public",
+        "user-library-read",
+        "user-library-modify",
+        "user-top-read",
+    )
+
     private val json = Json {
         isLenient = true
         ignoreUnknownKeys = true
+    }
+
+    private val oauthClient by lazy {
+        HttpClient(OkHttp) {
+            install(ContentNegotiation) { json(json) }
+            expectSuccess = false
+        }
+    }
+
+    data class AuthorizationRequest(
+        val url: String,
+        val codeVerifier: String,
+        val state: String,
+    )
+
+    /** Creates a browser-safe Authorization Code + PKCE request. */
+    fun createAuthorizationRequest(clientId: String): AuthorizationRequest {
+        require(clientId.isNotBlank()) { "Spotify Client ID is required" }
+        val verifier = randomUrlSafeString(64)
+        val state = randomUrlSafeString(32)
+        val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)),
+        )
+        val url = URLBuilder(AUTHORIZATION_URL).apply {
+            parameters.append("client_id", clientId)
+            parameters.append("response_type", "code")
+            parameters.append("redirect_uri", REDIRECT_URI)
+            parameters.append("scope", scopes.joinToString(" "))
+            parameters.append("code_challenge_method", "S256")
+            parameters.append("code_challenge", challenge)
+            parameters.append("state", state)
+            parameters.append("show_dialog", "true")
+        }.buildString()
+        return AuthorizationRequest(url, verifier, state)
+    }
+
+    suspend fun exchangeCodeForToken(
+        clientId: String,
+        code: String,
+        codeVerifier: String,
+    ): Result<SpotifyToken> = requestOAuthToken(
+        Parameters.build {
+            append("client_id", clientId)
+            append("grant_type", "authorization_code")
+            append("code", code)
+            append("redirect_uri", REDIRECT_URI)
+            append("code_verifier", codeVerifier)
+        },
+    )
+
+    suspend fun refreshOAuthToken(
+        clientId: String,
+        refreshToken: String,
+    ): Result<SpotifyToken> = requestOAuthToken(
+        Parameters.build {
+            append("client_id", clientId)
+            append("grant_type", "refresh_token")
+            append("refresh_token", refreshToken)
+        },
+    )
+
+    private suspend fun requestOAuthToken(parameters: Parameters): Result<SpotifyToken> = runCatching {
+        val response = oauthClient.post(OAUTH_TOKEN_URL) {
+            setBody(FormDataContent(parameters))
+        }
+        if (response.status.value !in 200..299) {
+            throw Spotify.SpotifyException(
+                response.status.value,
+                "Spotify OAuth token exchange failed: ${response.bodyAsText()}",
+            )
+        }
+        response.body()
+    }
+
+    private fun randomUrlSafeString(byteCount: Int): String {
+        val bytes = ByteArray(byteCount)
+        SecureRandom().nextBytes(bytes)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
     }
 
     @Serializable
@@ -66,7 +173,7 @@ object SpotifyAuth {
         val totp = generateTotp(nuance.s, serverTimeSec)
 
         val tokenUrl = buildString {
-            append(TOKEN_URL)
+            append(INTERNAL_TOKEN_URL)
             append("?reason=transport")
             append("&productType=web-player")
             append("&totp=$totp")

@@ -43,6 +43,7 @@ import com.metrolist.music.constants.SongSortType
 import com.metrolist.music.constants.SongSortTypeKey
 import com.metrolist.music.constants.TopSize
 import com.metrolist.music.db.MusicDatabase
+import com.metrolist.music.db.entities.PlaylistEntity
 import com.metrolist.music.extensions.filterExplicit
 import com.metrolist.music.extensions.filterExplicitAlbums
 import com.metrolist.music.extensions.filterVideoSongs
@@ -306,7 +307,13 @@ constructor(
                 )
             }.distinctUntilChanged()
             .flatMapLatest { (sortType, descending, hideYoutubeShorts) ->
-                database.playlists(sortType, descending).map { it.filterYoutubeShorts(hideYoutubeShorts) }
+                database.playlists(sortType, descending).map { playlists ->
+                    playlists
+                        .filterNot { playlist ->
+                            playlist.id == PlaylistEntity.WEEKLY_MOST_PLAYLIST_ID ||
+                                playlist.id == PlaylistEntity.MONTHLY_MOST_PLAYLIST_ID
+                        }.filterYoutubeShorts(hideYoutubeShorts)
+                }
             }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     fun sync() {
@@ -418,7 +425,13 @@ constructor(
         .map { it[HideYoutubeShortsKey] ?: false }
         .distinctUntilChanged()
         .flatMapLatest { hideYoutubeShorts ->
-            database.playlists(PlaylistSortType.CREATE_DATE, true).map { it.filterYoutubeShorts(hideYoutubeShorts) }
+            database.playlists(PlaylistSortType.CREATE_DATE, true).map { playlists ->
+                playlists
+                    .filterNot { playlist ->
+                        playlist.id == PlaylistEntity.WEEKLY_MOST_PLAYLIST_ID ||
+                            playlist.id == PlaylistEntity.MONTHLY_MOST_PLAYLIST_ID
+                    }.filterYoutubeShorts(hideYoutubeShorts)
+            }
         }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {

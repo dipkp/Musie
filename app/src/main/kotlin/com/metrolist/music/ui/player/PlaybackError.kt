@@ -24,7 +24,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -102,7 +101,7 @@ fun PlaybackError(
         Text(
             text = "Code: ${getErrorCodeName(error.errorCode)} (${error.errorCode})",
             style = MaterialTheme.typography.bodySmall.copy(
-                fontFamily = FontFamily.Monospace,
+                fontFamily = com.metrolist.music.ui.theme.spotifyMixUi,
                 fontSize = 11.sp
             ),
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),

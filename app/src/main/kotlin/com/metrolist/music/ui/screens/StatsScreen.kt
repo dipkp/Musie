@@ -164,8 +164,6 @@ fun StatsScreen(
     val mostPlayedAlbums by viewModel.filteredAlbums.collectAsState()
     val allArtists by viewModel.mostPlayedArtists.collectAsState()
     val firstEvent by viewModel.firstEvent.collectAsState()
-    val weeklyMostPlaylist by viewModel.weeklyMostPlaylist.collectAsState()
-    val monthlyMostPlaylist by viewModel.monthlyMostPlaylist.collectAsState()
     val recapPlaylists by viewModel.recapPlaylists.collectAsState()
     val currentDate = LocalDateTime.now()
     val orderedMostPlayedSongs =
@@ -173,18 +171,17 @@ fun StatsScreen(
             val songsById = mostPlayedSongs.associateBy { it.song.id }
             mostPlayedSongsStats.mapNotNull { statsSong -> songsById[statsSong.id] }
         }
-    val mostPeriodPlaylists = listOfNotNull(weeklyMostPlaylist, monthlyMostPlaylist)
     val (innerTubeCookie) = rememberPreference(InnerTubeCookieKey, "")
     val isLoggedIn =
         remember(innerTubeCookie) {
             "SAPISID" in parseCookieString(innerTubeCookie)
         }
     val visibleStatsPlaylists =
-        remember(mostPeriodPlaylists, recapPlaylists, isLoggedIn) {
+        remember(recapPlaylists, isLoggedIn) {
             if (isLoggedIn) {
-                (mostPeriodPlaylists + recapPlaylists).distinctBy { it.id }
+                recapPlaylists.distinctBy { it.id }
             } else {
-                mostPeriodPlaylists
+                emptyList()
             }
         }
 
@@ -220,7 +217,7 @@ fun StatsScreen(
     }
 
     LaunchedEffect(Unit) {
-        viewModel.syncMostPlaylistsIfNeeded()
+        viewModel.removeLegacyMostPlaylists()
     }
 
     val weeklyDates =

@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui.screens.library
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +25,10 @@ import com.metrolist.music.utils.rememberEnumPreference
 @Composable
 fun LibraryScreen(navController: NavController) {
     var filterType by rememberEnumPreference(ChipSortTypeKey, LibraryFilter.LIBRARY)
+
+    BackHandler(enabled = filterType != LibraryFilter.LIBRARY) {
+        filterType = LibraryFilter.LIBRARY
+    }
 
     val filterContent = @Composable {
         Row {
@@ -47,7 +52,11 @@ fun LibraryScreen(navController: NavController) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         when (filterType) {
-            LibraryFilter.LIBRARY -> LibraryMixScreen(navController, filterContent)
+            LibraryFilter.LIBRARY -> LibraryMixScreen(
+                navController = navController,
+                filterContent = filterContent,
+                onLocalFilesClick = { filterType = LibraryFilter.LOCAL_FILES },
+            )
             LibraryFilter.PLAYLISTS -> LibraryPlaylistsScreen(navController, filterContent)
             LibraryFilter.SONGS -> LibrarySongsScreen(
                 navController,

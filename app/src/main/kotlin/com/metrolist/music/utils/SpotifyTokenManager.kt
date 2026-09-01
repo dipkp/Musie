@@ -4,6 +4,8 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import com.metrolist.music.constants.SpotifyAccessTokenKey
+import com.metrolist.music.constants.SpotifyClientIdKey
+import com.metrolist.music.constants.SpotifyRefreshTokenKey
 import com.metrolist.music.constants.SpotifySpDcKey
 import com.metrolist.music.constants.SpotifySpKeyKey
 import com.metrolist.music.constants.SpotifyTokenExpiryKey
@@ -67,6 +69,31 @@ object SpotifyTokenManager {
                 return@withLock true
             }
 
+            val refreshToken = freshSettings[SpotifyRefreshTokenKey] ?: ""
+            val clientId = freshSettings[SpotifyClientIdKey] ?: ""
+            if (refreshToken.isNotEmpty() && clientId.isNotEmpty()) {
+                Timber.d("SpotifyTokenManager: token expired, refreshing via OAuth...")
+                return@withLock SpotifyAuth.refreshOAuthToken(clientId, refreshToken).fold(
+                    onSuccess = { token ->
+                        val expiresAt = System.currentTimeMillis() + token.expiresIn * 1000L
+                        Spotify.accessToken = token.accessToken
+                        dataStore.edit { prefs ->
+                            prefs[SpotifyAccessTokenKey] = token.accessToken
+                            prefs[SpotifyTokenExpiryKey] = expiresAt
+                            token.refreshToken?.takeIf(String::isNotBlank)?.let {
+                                prefs[SpotifyRefreshTokenKey] = it
+                            }
+                        }
+                        _needsReLogin.value = false
+                        true
+                    },
+                    onFailure = { error ->
+                        Timber.e(error, "SpotifyTokenManager: OAuth refresh failed")
+                        false
+                    },
+                )
+            }
+
             val spDc = freshSettings[SpotifySpDcKey] ?: ""
             val spKey = freshSettings[SpotifySpKeyKey] ?: ""
             if (spDc.isEmpty()) {
@@ -98,6 +125,7 @@ object SpotifyTokenManager {
                             prefs.remove(SpotifyAccessTokenKey)
                             prefs.remove(SpotifySpDcKey)
                             prefs.remove(SpotifySpKeyKey)
+                            prefs.remove(SpotifyRefreshTokenKey)
                             prefs.remove(SpotifyTokenExpiryKey)
                         }
                         Spotify.accessToken = null

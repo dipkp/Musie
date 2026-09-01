@@ -12,11 +12,9 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.database.SQLException
 import android.media.AudioDeviceCallback
@@ -111,20 +109,6 @@ import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
 import com.metrolist.music.constants.CrossfadeGaplessKey
 import com.metrolist.music.constants.DisableLoadMoreWhenRepeatAllKey
-import com.metrolist.music.constants.DiscordActivityNameKey
-import com.metrolist.music.constants.DiscordActivityTypeKey
-import com.metrolist.music.constants.DiscordAdvancedModeKey
-import com.metrolist.music.constants.DiscordAvatarKey
-import com.metrolist.music.constants.DiscordButton1TextKey
-import com.metrolist.music.constants.DiscordButton1UrlKey
-import com.metrolist.music.constants.DiscordButton1VisibleKey
-import com.metrolist.music.constants.DiscordButton2TextKey
-import com.metrolist.music.constants.DiscordButton2UrlKey
-import com.metrolist.music.constants.DiscordButton2VisibleKey
-import com.metrolist.music.constants.DiscordStatusKey
-import com.metrolist.music.constants.DiscordTokenKey
-import com.metrolist.music.constants.DiscordUseDetailsKey
-import com.metrolist.music.constants.EnableDiscordRPCKey
 import com.metrolist.music.constants.EnableLastFMScrobblingKey
 import com.metrolist.music.constants.EnableSongCacheKey
 import com.metrolist.music.constants.PreCacheOnlyWifiKey
@@ -203,7 +187,6 @@ import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.playback.queues.filterExplicit
 import com.metrolist.music.playback.queues.filterVideoSongs
 import com.metrolist.music.utils.CoilBitmapLoader
-import com.metrolist.music.utils.DiscordRPC
 import com.metrolist.music.utils.NetworkConnectivityObserver
 import com.metrolist.music.utils.ScrobbleManager
 import com.metrolist.music.utils.SyncUtils
@@ -418,9 +401,7 @@ class MusicService :
     private var isAudioEffectSessionOpened = false
     private var loudnessEnhancer: LoudnessEnhancer? = null
 
-    private var discordRpc: DiscordRPC? = null
     private var lastPlaybackSpeed = 1.0f
-    private var discordUpdateJob: kotlinx.coroutines.Job? = null
 
     private var scrobbleManager: ScrobbleManager? = null
 
@@ -462,34 +443,6 @@ class MusicService :
     // Google Cast support
     var castConnectionHandler: CastConnectionHandler? = null
         private set
-
-    private val screenStateReceiver =
-        object : BroadcastReceiver() {
-            override fun onReceive(
-                context: Context,
-                intent: Intent,
-            ) {
-                when (intent.action) {
-                    Intent.ACTION_SCREEN_OFF -> {
-                        if (playerInitialized.value && !player.isPlaying) {
-                            scope.launch(Dispatchers.IO) {
-                                discordRpc?.closeRPC()
-                            }
-                        }
-                    }
-
-                    Intent.ACTION_SCREEN_ON -> {
-                        if (playerInitialized.value && player.isPlaying) {
-                            scope.launch {
-                                currentSong.value?.let { song ->
-                                    updateDiscordRPC(song)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
     private val audioDeviceCallback =
         object : AudioDeviceCallback() {
@@ -625,13 +578,6 @@ class MusicService :
         connectivityManager = getSystemService()!!
         connectivityObserver = NetworkConnectivityObserver(this)
 
-        val screenStateFilter =
-            IntentFilter().apply {
-                addAction(Intent.ACTION_SCREEN_ON)
-                addAction(Intent.ACTION_SCREEN_OFF)
-            }
-        registerReceiver(screenStateReceiver, screenStateFilter)
-
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
 
         audioQuality = dataStore.get(AudioQualityKey).toEnum(com.metrolist.music.constants.AudioQuality.AUTO)
@@ -669,15 +615,6 @@ class MusicService :
                 isNetworkConnected.value = isConnected
                 if (isConnected && waitingForNetworkConnection.value) {
                     triggerRetry()
-                }
-                // Update Discord RPC when network becomes available
-                if (isConnected && discordRpc != null && player.isPlaying) {
-                    val mediaId = player.currentMetadata?.id
-                    if (mediaId != null) {
-                        database.song(mediaId).first()?.let { song ->
-                            updateDiscordRPC(song)
-                        }
-                    }
                 }
             }
         }
@@ -926,49 +863,6 @@ class MusicService :
             .collectLatest(scope) { useOffload ->
                 player.setOffloadEnabled(useOffload)
                 secondaryPlayer?.setOffloadEnabled(useOffload)
-            }
-
-        dataStore.data
-            .map { it[DiscordTokenKey] to (it[EnableDiscordRPCKey] ?: true) }
-            .debounce(300)
-            .distinctUntilChanged()
-            .collect(scope) { (key, enabled) ->
-                if (discordRpc?.isRpcRunning() == true) {
-                    discordRpc?.closeRPC()
-                }
-                discordRpc = null
-                if (key != null && enabled) {
-                    discordRpc = DiscordRPC(this, key)
-                    if (player.playbackState == Player.STATE_READY && player.playWhenReady) {
-                        currentSong.value?.let {
-                            updateDiscordRPC(it, true)
-                        }
-                    }
-                }
-            }
-
-        // Watch all Discord customization preferences
-        dataStore.data
-            .map {
-                listOf(
-                    it[DiscordUseDetailsKey],
-                    it[DiscordAdvancedModeKey],
-                    it[DiscordStatusKey],
-                    it[DiscordButton1TextKey],
-                    it[DiscordButton1VisibleKey],
-                    it[DiscordButton2TextKey],
-                    it[DiscordButton2VisibleKey],
-                    it[DiscordActivityTypeKey],
-                    it[DiscordActivityNameKey],
-                )
-            }.debounce(300)
-            .distinctUntilChanged()
-            .collect(scope) {
-                if (player.playbackState == Player.STATE_READY) {
-                    currentSong.value?.let { song ->
-                        updateDiscordRPC(song, true)
-                    }
-                }
             }
 
         dataStore.data
@@ -2331,8 +2225,6 @@ class MusicService :
 
         setupLoudnessEnhancer()
 
-        discordUpdateJob?.cancel()
-
         // Restart SponsorBlock for the new track (no-op when disabled).
         startSponsorBlockForCurrentTrack()
 
@@ -2490,40 +2382,13 @@ class MusicService :
             currentMediaMetadata.value = player.currentMetadata
         }
 
-        // Widget and Discord RPC updates
+        // Widget updates
         if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {
             updateWidgetUI(player.isPlaying)
             if (player.isPlaying) {
                 startWidgetUpdates()
             } else {
                 stopWidgetUpdates()
-            }
-            if (!player.isPlaying &&
-                !events.containsAny(
-                    Player.EVENT_POSITION_DISCONTINUITY,
-                    Player.EVENT_MEDIA_ITEM_TRANSITION,
-                )
-            ) {
-                scope.launch {
-                    discordRpc?.close()
-                }
-            }
-        }
-
-        // Update Discord RPC when media item changes or playback starts
-        if (events.containsAny(
-                Player.EVENT_MEDIA_ITEM_TRANSITION,
-                Player.EVENT_IS_PLAYING_CHANGED,
-            ) && player.isPlaying
-        ) {
-            val mediaId = player.currentMetadata?.id
-            if (mediaId != null) {
-                scope.launch {
-                    // Fetch song from database to get full info
-                    database.song(mediaId).first()?.let { song ->
-                        updateDiscordRPC(song)
-                    }
-                }
             }
         }
 
@@ -2672,18 +2537,6 @@ class MusicService :
         super.onPlaybackParametersChanged(playbackParameters)
         if (playbackParameters.speed != lastPlaybackSpeed) {
             lastPlaybackSpeed = playbackParameters.speed
-            discordUpdateJob?.cancel()
-
-            // update scheduling thingy
-            discordUpdateJob =
-                scope.launch {
-                    delay(1000)
-                    if (player.playWhenReady && player.playbackState == Player.STATE_READY) {
-                        currentSong.value?.let { song ->
-                            updateDiscordRPC(song)
-                        }
-                    }
-                }
         }
     }
 
@@ -3577,57 +3430,6 @@ class MusicService :
         }
     }
 
-    private fun updateDiscordRPC(
-        song: Song,
-        showFeedback: Boolean = false,
-    ) {
-        val useDetails = dataStore.get(DiscordUseDetailsKey, false)
-        val advancedMode = dataStore.get(DiscordAdvancedModeKey, false)
-
-        val status = if (advancedMode) dataStore.get(DiscordStatusKey, "online") else "online"
-        val b1Text = if (advancedMode) dataStore.get(DiscordButton1TextKey, "") else ""
-        val b1Visible = if (advancedMode) dataStore.get(DiscordButton1VisibleKey, true) else true
-        val b1Url = if (advancedMode) dataStore.get(DiscordButton1UrlKey, "") else ""
-        val b2Text = if (advancedMode) dataStore.get(DiscordButton2TextKey, "") else ""
-        val b2Visible = if (advancedMode) dataStore.get(DiscordButton2VisibleKey, true) else true
-        val b2Url = if (advancedMode) dataStore.get(DiscordButton2UrlKey, "") else ""
-        val activityType = if (advancedMode) dataStore.get(DiscordActivityTypeKey, "listening") else "listening"
-        val activityName = if (advancedMode) dataStore.get(DiscordActivityNameKey, "") else ""
-
-        discordUpdateJob?.cancel()
-        discordUpdateJob =
-            scope.launch {
-                discordRpc
-                    ?.updateSong(
-                        song,
-                        player.currentPosition,
-                        player.playbackParameters.speed,
-                        useDetails,
-                        status,
-                        b1Text,
-                        b1Visible,
-                        b1Url,
-                        b2Text,
-                        b2Visible,
-                        b2Url,
-                        activityType,
-                        activityName,
-                    )?.onFailure {
-                        // Rate limited or error
-                        if (showFeedback) {
-                            Handler(Looper.getMainLooper()).post {
-                                Toast
-                                    .makeText(
-                                        this@MusicService,
-                                        "Discord RPC update failed: ${it.message}",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                            }
-                        }
-                    }
-            }
-    }
-
     private fun applyQobuzEndpointOverrides() {
         QobuzAudioProvider.configureEndpoints(
             squid = dataStore.get(QobuzSquidEndpointKey, ""),
@@ -4250,20 +4052,11 @@ class MusicService :
             }
         }
 
-        try {
-            unregisterReceiver(screenStateReceiver)
-        } catch (e: Exception) {
-            // Ignore
-        }
         audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
         castConnectionHandler?.release()
         if (dataStore.get(PersistentQueueKey, true)) {
             saveQueueToDiskBlocking()
         }
-        if (discordRpc?.isRpcRunning() == true) {
-            discordRpc?.closeRPC()
-        }
-        discordRpc = null
         connectivityObserver.unregister()
         abandonAudioFocus()
         releaseLoudnessEnhancer()
@@ -4276,7 +4069,6 @@ class MusicService :
         // or we can't easily reference the specific processor created in createExoPlayer here without storing it.
         // But since we are destroying the service, it's fine.
         player.release()
-        discordUpdateJob?.cancel()
         sponsorBlockJob?.cancel()
         scope.cancel()
         super.onDestroy()

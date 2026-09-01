@@ -45,14 +45,15 @@ import com.metrolist.music.ui.screens.recognition.RecognitionHistoryScreen
 import com.metrolist.music.ui.screens.recognition.RecognitionScreen
 import com.metrolist.music.ui.screens.search.OnlineSearchResult
 import com.metrolist.music.ui.screens.search.SearchScreen
+import com.metrolist.music.ui.screens.settings.AccountSettings
 import com.metrolist.music.ui.screens.settings.AboutScreen
 import com.metrolist.music.ui.screens.settings.AiSettings
 import com.metrolist.music.ui.screens.settings.AndroidAutoSettings
 import com.metrolist.music.ui.screens.settings.AppearanceSettings
 import com.metrolist.music.ui.screens.settings.BackupAndRestore
 import com.metrolist.music.ui.screens.settings.ContentSettings
+import com.metrolist.music.ui.screens.settings.ChangelogScreen
 import com.metrolist.music.ui.screens.settings.DarkMode
-import com.metrolist.music.ui.screens.settings.DiscordLoginScreen
 import com.metrolist.music.ui.screens.settings.PlayerSettings
 import com.metrolist.music.ui.screens.settings.SponsorBlockSettings
 import com.metrolist.music.ui.screens.settings.PrivacySettings
@@ -61,14 +62,11 @@ import com.metrolist.music.ui.screens.settings.SettingsScreen
 import com.metrolist.music.ui.screens.settings.StorageSettings
 import com.metrolist.music.ui.screens.settings.ThemeScreen
 import com.metrolist.music.ui.screens.settings.UpdaterScreen
-import com.metrolist.music.ui.screens.settings.integrations.DiscordSettings
 import com.metrolist.music.ui.screens.settings.integrations.IntegrationScreen
 import com.metrolist.music.ui.screens.settings.integrations.LastFMSettings
 import com.metrolist.music.ui.screens.settings.integrations.ListenTogetherSettings
 import com.metrolist.music.ui.screens.settings.integrations.SpotifyPreloadScreen
 import com.metrolist.music.ui.screens.settings.integrations.SpotifySettings
-import com.metrolist.music.ui.screens.recognition.RecognitionScreen
-import com.metrolist.music.ui.screens.recognition.RecognitionHistoryScreen
 import com.metrolist.music.ui.screens.wrapped.WrappedScreen
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
@@ -368,12 +366,32 @@ fun NavGraphBuilder.navigationBuilder(
         SettingsScreen(navController, latestVersionName)
     }
 
+    composable("settings/account") {
+        AccountSettings(
+            navController = navController,
+            onClose = navController::navigateUp,
+            latestVersionName = latestVersionName,
+        )
+    }
+
     composable("settings/appearance") {
         AppearanceSettings(navController, activity, snackbarHostState)
     }
 
     composable("settings/appearance/theme") {
         ThemeScreen(navController)
+    }
+
+    composable("settings/changelog") {
+        ChangelogScreen(navController)
+    }
+
+    composable("settings/updater") {
+        UpdaterScreen(navController)
+    }
+
+    composable("settings/about") {
+        AboutScreen(navController)
     }
 
     composable("settings/content") {
@@ -410,10 +428,6 @@ fun NavGraphBuilder.navigationBuilder(
 
     composable("settings/integrations") {
         IntegrationScreen(navController)
-    }
-
-    composable("settings/integrations/discord") {
-        DiscordSettings(navController, snackbarHostState)
     }
 
     composable("settings/integrations/lastfm") {
@@ -481,18 +495,6 @@ fun NavGraphBuilder.navigationBuilder(
         val folderUri = java.net.URLDecoder.decode(rawUri, Charsets.UTF_8.name())
         val folderName = rawName?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8.name()) }
         SpotifyFolderScreen(navController, folderUri, folderName)
-    }
-
-    composable("settings/discord/login") {
-        DiscordLoginScreen(navController)
-    }
-
-    composable("settings/updater") {
-        UpdaterScreen(navController)
-    }
-
-    composable("settings/about") {
-        AboutScreen(navController, scrollBehavior)
     }
 
     composable("login") {

@@ -69,7 +69,6 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -743,7 +742,7 @@ fun LogEntryItem(log: LogEntry) {
             Text(
                 text = log.timestamp,
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = com.metrolist.music.ui.theme.spotifyMixUi,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.width(8.dp))
@@ -775,13 +774,13 @@ fun LogEntryItem(log: LogEntry) {
         Text(
             text = log.message,
             style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = com.metrolist.music.ui.theme.spotifyMixUi,
         )
         log.details?.let { details ->
             Text(
                 text = details,
                 style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = com.metrolist.music.ui.theme.spotifyMixUi,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

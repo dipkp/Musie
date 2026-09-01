@@ -125,6 +125,7 @@ class App :
     }
 
     private suspend fun initializeSettings() {
+        applyMusieDefaultProfile()
         val settings = dataStore.data.first()
         val locale = Locale.getDefault()
         val languageTag = locale.language
@@ -228,6 +229,67 @@ class App :
             }
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(channel)
+    }
+
+    /**
+     * Applies the product defaults once to both fresh and already-installed copies of Musie.
+     * The version marker is written in the same transaction so later app launches never replace
+     * choices the listener makes after this initial profile has been installed.
+     */
+    private suspend fun applyMusieDefaultProfile() {
+        val currentVersion = dataStore.data.first()[MusieDefaultsVersionKey] ?: 0
+        if (currentVersion >= MUSIE_DEFAULTS_VERSION) return
+
+        dataStore.edit { settings ->
+            // Account
+            settings[UseLoginForBrowse] = true
+            settings[YtmSyncKey] = true
+
+            // Theme and display: AMOLED with the final Blue Grey palette.
+            settings[EnableDynamicIconKey] = true
+            settings[EnableHighRefreshRateKey] = true
+            settings[DarkModeKey] = "ON"
+            settings[PureBlackKey] = true
+            settings[PureBlackMiniPlayerKey] = true
+            settings[DynamicThemeKey] = false
+            settings[SelectedThemeColorKey] = 0xFF546E7A.toInt()
+
+            // Player appearance and gestures
+            settings[UseNewMiniPlayerDesignKey] = true
+            settings[MiniPlayerBackgroundStyleKey] = MiniPlayerBackgroundStyle.BLUR.name
+            settings[PlayerBackgroundStyleKey] = PlayerBackgroundStyle.GLOW_ANIMATED.name
+            settings[CropAlbumArtKey] = true
+            settings[SliderStyleKey] = SliderStyle.WAVY.name
+            settings[SquigglySliderKey] = false
+            settings[SwipeThumbnailKey] = true
+            settings[RespectAgentPositioningKey] = true
+            settings[LyricsClickKey] = true
+            settings[LyricsScrollKey] = true
+            settings[HideStatusBarOnFullscreenKey] = true
+            settings[DefaultOpenTabKey] = "HOME"
+            settings[SwipeToSongKey] = true
+            settings[SwipeToRemoveSongKey] = true
+
+            // Home and library visibility
+            settings[ListenTogetherInTopBarKey] = true
+            settings[ShowRecognizeButtonKey] = true
+            settings[ShowLikedPlaylistKey] = true
+            settings[ShowDownloadedPlaylistKey] = true
+            settings[ShowTopPlaylistKey] = true
+            settings[ShowCachedPlaylistKey] = true
+            settings[ShowUploadedPlaylistKey] = true
+
+            // Player and audio
+            settings[AudioQualityKey] = AudioQuality.AUTO.name
+            settings[ResumeOnBluetoothConnectKey] = true
+
+            // SponsorBlock
+            settings[SponsorBlockEnabledKey] = true
+            settings[SponsorBlockShowToastKey] = true
+            settings[SponsorBlockCategoriesKey] = SPONSORBLOCK_ALL_CATEGORIES.joinToString(",")
+
+            settings[MusieDefaultsVersionKey] = MUSIE_DEFAULTS_VERSION
+        }
     }
 
     private fun observeSettingsChanges() {
@@ -364,6 +426,8 @@ class App :
     }
 
     companion object {
+        private const val MUSIE_DEFAULTS_VERSION = 1
+
         /** Spotify match-cache rows older than this are evicted on startup. */
         private const val SPOTIFY_MATCH_TTL_MS = 90L * 24 * 60 * 60 * 1000 // 90 days
 

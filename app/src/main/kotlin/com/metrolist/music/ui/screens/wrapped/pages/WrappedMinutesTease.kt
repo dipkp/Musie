@@ -18,7 +18,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,7 +45,7 @@ fun WrappedMinutesTease(
             Text(
                 text = messagePair?.tease ?: "", modifier = Modifier.padding(horizontal = 24.dp),
                 color = Color.White, fontSize = 30.sp, lineHeight = 34.sp, textAlign = TextAlign.Center,
-                fontFamily = try { bbh_bartle } catch (e: Exception) { FontFamily.Default }
+                fontFamily = try { bbh_bartle } catch (e: Exception) { com.metrolist.music.ui.theme.spotifyMixTitle }
             )
         }
     }

@@ -9,7 +9,6 @@ import androidx.activity.compose.BackHandler
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.content.res.Configuration
 import android.view.WindowManager
 import android.widget.Toast
@@ -115,10 +114,14 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.net.toUri
 import androidx.datastore.preferences.core.edit
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.Player.STATE_ENDED
+import androidx.media3.exoplayer.offline.Download
+import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.DownloadService
 import androidx.navigation.NavController
 import androidx.palette.graphics.Palette
 import coil3.compose.AsyncImage
@@ -138,8 +141,8 @@ import com.metrolist.music.constants.HideStatusBarOnFullscreenKey
 import com.metrolist.music.constants.KeepScreenOn
 import com.metrolist.music.constants.PlayerBackgroundStyle
 import com.metrolist.music.constants.PlayerBackgroundStyleKey
+import com.metrolist.music.constants.GlassPlayerKey
 import com.metrolist.music.constants.PlayerButtonsStyle
-import com.metrolist.music.constants.PlayerButtonsStyleKey
 import com.metrolist.music.constants.PlayerHorizontalPadding
 import com.metrolist.music.constants.QueuePeekHeight
 import com.metrolist.music.constants.SimilarContent
@@ -150,12 +153,12 @@ import com.metrolist.music.constants.SliderStyle
 import com.metrolist.music.constants.SliderStyleKey
 import com.metrolist.music.constants.SquigglySliderKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
-import com.metrolist.music.constants.UseNewPlayerDesignKey
 import com.metrolist.music.db.entities.LyricsEntity
 import com.metrolist.music.extensions.togglePlayPause
 import com.metrolist.music.extensions.toggleRepeatMode
 import com.metrolist.music.listentogether.RoomRole
 import com.metrolist.music.models.MediaMetadata
+import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.ui.component.BottomSheet
 import com.metrolist.music.ui.component.BottomSheetState
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
@@ -201,6 +204,7 @@ fun BottomSheetPlayer(
     pureBlack: Boolean,
 ) {
     val context = LocalContext.current
+    val database = LocalDatabase.current
     val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     val menuState = LocalMenuState.current
     val sleepTimerDefaultSetTemplate = stringResource(R.string.sleep_timer_default_set)
@@ -209,11 +213,10 @@ fun BottomSheetPlayer(
     val bottomSheetPageState = LocalBottomSheetPageState.current
     val playerConnection = LocalPlayerConnection.current ?: return
 
-    val (useNewPlayerDesign, onUseNewPlayerDesignChange) =
-        rememberPreference(
-            UseNewPlayerDesignKey,
-            defaultValue = true,
-        )
+    // The Apple-inspired layout is Musie's only main-player layout. Keeping the old branch in
+    // source avoids a risky large deletion, but it is no longer user-facing or selected by old
+    // stored preferences.
+    val useNewPlayerDesign = false
     val (hidePlayerThumbnail, onHidePlayerThumbnailChange) = rememberPreference(HidePlayerThumbnailKey, false)
     val (hideStatusBarOnFullscreen) = rememberPreference(HideStatusBarOnFullscreenKey, false)
     val cropAlbumArt by rememberPreference(CropAlbumArtKey, false)
@@ -226,14 +229,20 @@ fun BottomSheetPlayer(
         mutableStateOf(false)
     }
 
-    val playerBackground by rememberEnumPreference(
+    val storedPlayerBackground by rememberEnumPreference(
         key = PlayerBackgroundStyleKey,
-        defaultValue = PlayerBackgroundStyle.DEFAULT,
+        defaultValue = PlayerBackgroundStyle.APPLE_MUSIC,
     )
-    val playerButtonsStyle by rememberEnumPreference(
-        key = PlayerButtonsStyleKey,
-        defaultValue = PlayerButtonsStyle.DEFAULT,
-    )
+    val glassPlayer by rememberPreference(GlassPlayerKey, false)
+    val playerBackground =
+        when {
+            glassPlayer && storedPlayerBackground == PlayerBackgroundStyle.DEFAULT -> PlayerBackgroundStyle.LIQUID_GLASS
+            storedPlayerBackground == PlayerBackgroundStyle.DEFAULT -> PlayerBackgroundStyle.APPLE_MUSIC
+            else -> storedPlayerBackground
+        }
+    // White controls remain readable over every artwork-derived background and intentionally do
+    // not inherit a custom theme color. This also overrides old persisted color selections.
+    val effectivePlayerButtonsStyle = PlayerButtonsStyle.WHITE
 
     val isSystemInDarkTheme = isSystemInDarkTheme()
     val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
@@ -245,8 +254,8 @@ fun BottomSheetPlayer(
     val shouldUseDarkButtonColors =
         remember(playerBackground, useDarkTheme) {
             when (playerBackground) {
-                PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT -> true
                 PlayerBackgroundStyle.DEFAULT -> useDarkTheme
+                else -> true
             }
         }
 
@@ -260,12 +269,12 @@ fun BottomSheetPlayer(
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
 
             when (playerBackground) {
-                PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT -> {
-                    insetsController.isAppearanceLightStatusBars = false
-                }
-
                 PlayerBackgroundStyle.DEFAULT -> {
                     insetsController.isAppearanceLightStatusBars = !useDarkTheme
+                }
+
+                else -> {
+                    insetsController.isAppearanceLightStatusBars = false
                 }
             }
 
@@ -387,7 +396,9 @@ fun BottomSheetPlayer(
     val fallbackColor = MaterialTheme.colorScheme.surface.toArgb()
 
     LaunchedEffect(mediaMetadata?.id, playerBackground) {
-        if (playerBackground == PlayerBackgroundStyle.GRADIENT) {
+        if (playerBackground == PlayerBackgroundStyle.GRADIENT ||
+            playerBackground == PlayerBackgroundStyle.GLOW_ANIMATED
+        ) {
             val currentMetadata = mediaMetadata
             if (currentMetadata != null && currentMetadata.thumbnailUrl != null) {
                 val cachedColors = gradientColorsCache[currentMetadata.id]
@@ -437,8 +448,7 @@ fun BottomSheetPlayer(
         targetValue =
             when (playerBackground) {
                 PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.onBackground
-                PlayerBackgroundStyle.BLUR -> Color.White
-                PlayerBackgroundStyle.GRADIENT -> Color.White
+                else -> Color.White
             },
         label = "TextBackgroundColor",
     )
@@ -447,20 +457,20 @@ fun BottomSheetPlayer(
         targetValue =
             when (playerBackground) {
                 PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.surface
-                PlayerBackgroundStyle.BLUR -> Color.Black
-                PlayerBackgroundStyle.GRADIENT -> Color.Black
+                else -> Color.Black
             },
         label = "icBackgroundColor",
     )
 
     val (textButtonColor, iconButtonColor) =
         when {
-            playerBackground == PlayerBackgroundStyle.BLUR ||
-                playerBackground == PlayerBackgroundStyle.GRADIENT -> {
-                when (playerButtonsStyle) {
+            playerBackground != PlayerBackgroundStyle.DEFAULT -> {
+                when (effectivePlayerButtonsStyle) {
                     PlayerButtonsStyle.DEFAULT -> {
                         Pair(Color.White, Color.Black)
                     }
+
+                    PlayerButtonsStyle.WHITE -> Pair(Color.White, Color.Black)
 
                     PlayerButtonsStyle.PRIMARY -> {
                         Pair(
@@ -479,7 +489,7 @@ fun BottomSheetPlayer(
             }
 
             else -> {
-                when (playerButtonsStyle) {
+                when (effectivePlayerButtonsStyle) {
                     PlayerButtonsStyle.DEFAULT -> {
                         if (useDarkTheme) {
                             Pair(Color.White, Color.Black)
@@ -487,6 +497,8 @@ fun BottomSheetPlayer(
                             Pair(Color.Black, Color.White)
                         }
                     }
+
+                    PlayerButtonsStyle.WHITE -> Pair(Color.White, Color.Black)
 
                     PlayerButtonsStyle.PRIMARY -> {
                         Pair(
@@ -508,15 +520,16 @@ fun BottomSheetPlayer(
     // Separate colors for Previous/Next buttons in PRIMARY/TERTIARY modes
     val (sideButtonContainerColor, sideButtonContentColor) =
         when {
-            playerBackground == PlayerBackgroundStyle.BLUR ||
-                playerBackground == PlayerBackgroundStyle.GRADIENT -> {
-                when (playerButtonsStyle) {
+            playerBackground != PlayerBackgroundStyle.DEFAULT -> {
+                when (effectivePlayerButtonsStyle) {
                     PlayerButtonsStyle.DEFAULT -> {
                         Pair(
                             Color.White.copy(alpha = 0.2f),
                             Color.White,
                         )
                     }
+
+                    PlayerButtonsStyle.WHITE -> Pair(Color.White, Color.Black)
 
                     PlayerButtonsStyle.PRIMARY -> {
                         Pair(
@@ -535,13 +548,15 @@ fun BottomSheetPlayer(
             }
 
             else -> {
-                when (playerButtonsStyle) {
+                when (effectivePlayerButtonsStyle) {
                     PlayerButtonsStyle.DEFAULT -> {
                         Pair(
                             MaterialTheme.colorScheme.surfaceContainerHighest,
                             MaterialTheme.colorScheme.onSurface,
                         )
                     }
+
+                    PlayerButtonsStyle.WHITE -> Pair(Color.White, Color.Black)
 
                     PlayerButtonsStyle.PRIMARY -> {
                         Pair(
@@ -767,7 +782,13 @@ fun BottomSheetPlayer(
 
     val bottomSheetBackgroundColor =
         when (playerBackground) {
-            PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT -> {
+            PlayerBackgroundStyle.LIVE_MESH, PlayerBackgroundStyle.LIQUID_GLASS -> Color.Black
+
+            PlayerBackgroundStyle.BLUR,
+            PlayerBackgroundStyle.GRADIENT,
+            PlayerBackgroundStyle.GLOW_ANIMATED,
+            PlayerBackgroundStyle.APPLE_MUSIC,
+            -> {
                 MaterialTheme.colorScheme.surfaceContainer
             }
 
@@ -863,9 +884,32 @@ fun BottomSheetPlayer(
                         }
                     }
 
-                    else -> {
-                        PlayerBackgroundStyle.DEFAULT
+                    PlayerBackgroundStyle.GLOW_ANIMATED -> {
+                        AnimatedGlowBackground(
+                            colors = gradientColors.ifEmpty { defaultGradientColors },
+                            alpha = backgroundAlpha,
+                        )
                     }
+
+                    PlayerBackgroundStyle.APPLE_MUSIC -> {
+                        AppleMusicBackground(
+                            thumbnailUrl = mediaMetadata?.thumbnailUrl,
+                            alpha = backgroundAlpha,
+                            showClearArtwork = !showInlineLyrics,
+                        )
+                    }
+
+                    PlayerBackgroundStyle.LIVE_MESH,
+                    PlayerBackgroundStyle.LIQUID_GLASS,
+                    -> {
+                        LiveMeshBackground(
+                            thumbnailUrl = mediaMetadata?.thumbnailUrl,
+                            alpha = backgroundAlpha,
+                            liquidGlass = playerBackground == PlayerBackgroundStyle.LIQUID_GLASS,
+                        )
+                    }
+
+                    PlayerBackgroundStyle.DEFAULT -> Unit
                 }
             }
         },
@@ -887,6 +931,45 @@ fun BottomSheetPlayer(
         },
     ) {
         val controlsContent: @Composable ColumnScope.(MediaMetadata) -> Unit = { mediaMetadata ->
+            val onDownloadClick = {
+                when (download?.state) {
+                    Download.STATE_COMPLETED,
+                    Download.STATE_QUEUED,
+                    Download.STATE_DOWNLOADING -> {
+                        DownloadService.sendRemoveDownload(
+                            context,
+                            ExoDownloadService::class.java,
+                            mediaMetadata.id,
+                            false,
+                        )
+                    }
+
+                    else -> {
+                        database.transaction {
+                            insert(mediaMetadata)
+                        }
+                        val downloadRequest =
+                            DownloadRequest
+                                .Builder(mediaMetadata.id, mediaMetadata.id.toUri())
+                                .setCustomCacheKey(mediaMetadata.id)
+                                .setData(mediaMetadata.title.toByteArray())
+                                .build()
+                        DownloadService.sendAddDownload(
+                            context,
+                            ExoDownloadService::class.java,
+                            downloadRequest,
+                            false,
+                        )
+                    }
+                }
+            }
+            val downloadIcon =
+                if (download?.state == Download.STATE_COMPLETED) {
+                    R.drawable.offline
+                } else {
+                    R.drawable.download
+                }
+
             val playPauseRoundness by animateDpAsState(
                 targetValue = if (isPlaying) 24.dp else 36.dp,
                 animationSpec = tween(durationMillis = 90, easing = LinearEasing),
@@ -1073,7 +1156,7 @@ fun BottomSheetPlayer(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 if (useNewPlayerDesign) {
-                    val shareShape =
+                    val downloadShape =
                         RoundedCornerShape(
                             topStart = 50.dp,
                             bottomStart = 50.dp,
@@ -1095,11 +1178,11 @@ fun BottomSheetPlayer(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        AnimatedContent(targetState = showInlineLyrics, label = "ShareButton") { showLyrics ->
+                        AnimatedContent(targetState = showInlineLyrics, label = "DownloadButton") { showLyrics ->
                             if (showLyrics) {
                                 FilledIconButton(
                                     onClick = { isFullScreen = !isFullScreen },
-                                    shape = shareShape,
+                                    shape = downloadShape,
                                     colors =
                                         IconButtonDefaults.filledIconButtonColors(
                                             containerColor = textButtonColor,
@@ -1115,19 +1198,8 @@ fun BottomSheetPlayer(
                                 }
                             } else {
                                 FilledIconButton(
-                                    onClick = {
-                                        val intent =
-                                            Intent().apply {
-                                                action = Intent.ACTION_SEND
-                                                type = "text/plain"
-                                                putExtra(
-                                                    Intent.EXTRA_TEXT,
-                                                    "https://music.youtube.com/watch?v=${mediaMetadata.id}",
-                                                )
-                                            }
-                                        context.startActivity(Intent.createChooser(intent, null))
-                                    },
-                                    shape = shareShape,
+                                    onClick = onDownloadClick,
+                                    shape = downloadShape,
                                     colors =
                                         IconButtonDefaults.filledIconButtonColors(
                                             containerColor = textButtonColor,
@@ -1136,7 +1208,7 @@ fun BottomSheetPlayer(
                                     modifier = Modifier.size(42.dp),
                                 ) {
                                     Icon(
-                                        painter = painterResource(R.drawable.share),
+                                        painter = painterResource(downloadIcon),
                                         contentDescription = null,
                                         modifier = Modifier.size(24.dp),
                                     )
@@ -1210,7 +1282,7 @@ fun BottomSheetPlayer(
                         }
                     }
                 } else {
-                    AnimatedContent(targetState = showInlineLyrics, label = "ShareButton") { showLyrics ->
+                    AnimatedContent(targetState = showInlineLyrics, label = "DownloadButton") { showLyrics ->
                         if (showLyrics) {
                             Box(
                                 modifier =
@@ -1237,21 +1309,10 @@ fun BottomSheetPlayer(
                                         .size(40.dp)
                                         .clip(RoundedCornerShape(24.dp))
                                         .background(textButtonColor)
-                                        .clickable {
-                                            val intent =
-                                                Intent().apply {
-                                                    action = Intent.ACTION_SEND
-                                                    type = "text/plain"
-                                                    putExtra(
-                                                        Intent.EXTRA_TEXT,
-                                                        "https://music.youtube.com/watch?v=${mediaMetadata.id}",
-                                                    )
-                                                }
-                                            context.startActivity(Intent.createChooser(intent, null))
-                                        },
+                                        .clickable(onClick = onDownloadClick),
                             ) {
                                 Icon(
-                                    painter = painterResource(R.drawable.share),
+                                    painter = painterResource(downloadIcon),
                                     contentDescription = null,
                                     tint = iconButtonColor,
                                     modifier =

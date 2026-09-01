@@ -19,8 +19,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -160,17 +162,24 @@ fun AccountSettingsDialog(
                     ) {
                         onDismiss()
                     },
-            contentAlignment = Alignment.TopCenter,
+            contentAlignment = Alignment.Center,
         ) {
             Surface(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(top = 72.dp, start = 16.dp, end = 16.dp)
-                        .clip(RoundedCornerShape(28.dp)),
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp,
+                        .widthIn(max = 560.dp)
+                        .heightIn(max = 720.dp)
+                        .padding(horizontal = 20.dp, vertical = 24.dp)
+                        .clip(RoundedCornerShape(32.dp))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                            onClick = {},
+                        ),
+                shape = RoundedCornerShape(32.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = 12.dp,
             ) {
                 AccountSettings(
                     navController = navController,

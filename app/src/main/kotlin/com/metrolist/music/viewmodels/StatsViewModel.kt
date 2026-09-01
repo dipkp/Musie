@@ -13,18 +13,13 @@ import androidx.lifecycle.viewModelScope
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.Artist
 import com.metrolist.music.constants.HideVideoSongsKey
-import com.metrolist.music.constants.LastMonthlyMostPlaylistSyncKey
-import com.metrolist.music.constants.LastWeeklyMostPlaylistSyncKey
 import com.metrolist.music.constants.StatPeriod
 import com.metrolist.music.constants.statToPeriod
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.PlaylistEntity
-import com.metrolist.music.db.entities.PlaylistSongMap
 import com.metrolist.music.ui.screens.OptionStats
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.reportException
-import androidx.datastore.preferences.core.edit
-import com.metrolist.music.R
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -210,23 +205,13 @@ constructor(
         viewModelScope.launch {
             try {
                 database.transferSongStats(fromSongId, toSongId)
-                syncMostPlaylistsIfNeeded(force = true)
+                removeLegacyMostPlaylists()
                 onDone?.invoke()
             } catch (t: Throwable) {
                 reportException(t)
             }
         }
     }
-
-    val weeklyMostPlaylist =
-        database
-            .playlist(PlaylistEntity.WEEKLY_MOST_PLAYLIST_ID)
-            .stateIn(viewModelScope, SharingStarted.Lazily, null)
-
-    val monthlyMostPlaylist =
-        database
-            .playlist(PlaylistEntity.MONTHLY_MOST_PLAYLIST_ID)
-            .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
     val recapPlaylists =
         database
@@ -239,138 +224,19 @@ constructor(
             }.distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    fun syncMostPlaylistsIfNeeded(force: Boolean = false) {
+    fun removeLegacyMostPlaylists() {
         viewModelScope.launch(Dispatchers.IO) {
             periodicMostPlaylistSyncMutex.withLock {
-                val now = LocalDateTime.now(ZoneOffset.UTC)
-                val nowEpochMillis = now.toInstant(ZoneOffset.UTC).toEpochMilli()
-                val preferences = context.dataStore.data.first()
-                val hideVideoSongs = preferences[HideVideoSongsKey] ?: false
-
-                val weeklyPlaylistExists =
-                    database.playlist(PlaylistEntity.WEEKLY_MOST_PLAYLIST_ID).first() != null
-                val monthlyPlaylistExists =
-                    database.playlist(PlaylistEntity.MONTHLY_MOST_PLAYLIST_ID).first() != null
-
-                val shouldSyncWeekly =
-                    force || !weeklyPlaylistExists || isWeeklySyncDue(
-                        lastSyncMillis = preferences[LastWeeklyMostPlaylistSyncKey],
-                        now = now,
-                    )
-                val shouldSyncMonthly =
-                    force || !monthlyPlaylistExists || isMonthlySyncDue(
-                        lastSyncMillis = preferences[LastMonthlyMostPlaylistSyncKey],
-                        now = now,
-                    )
-
-                if (!shouldSyncWeekly && !shouldSyncMonthly) {
-                    return@withLock
-                }
-
-                if (shouldSyncWeekly) {
-                    syncMostPlaylist(
-                        playlistId = PlaylistEntity.WEEKLY_MOST_PLAYLIST_ID,
-                        playlistName = context.getString(R.string.weekly_most_playlist_name),
-                        fromTimeStamp = StatPeriod.WEEK_1.toTimeMillis(),
-                        hideVideoSongs = hideVideoSongs,
-                        now = now,
-                    )
-                }
-
-                if (shouldSyncMonthly) {
-                    syncMostPlaylist(
-                        playlistId = PlaylistEntity.MONTHLY_MOST_PLAYLIST_ID,
-                        playlistName = context.getString(R.string.monthly_most_playlist_name),
-                        fromTimeStamp = StatPeriod.MONTH_1.toTimeMillis(),
-                        hideVideoSongs = hideVideoSongs,
-                        now = now,
-                    )
-                }
-
-                // Only write "last sync" when it was a scheduled sync, not a forced rebuild
-                if (!force) {
-                    context.dataStore.edit { settings ->
-                        if (shouldSyncWeekly) settings[LastWeeklyMostPlaylistSyncKey] = nowEpochMillis
-                        if (shouldSyncMonthly) settings[LastMonthlyMostPlaylistSyncKey] = nowEpochMillis
+                listOf(
+                    PlaylistEntity.WEEKLY_MOST_PLAYLIST_ID,
+                    PlaylistEntity.MONTHLY_MOST_PLAYLIST_ID,
+                ).forEach { playlistId ->
+                    database.playlist(playlistId).first()?.playlist?.let { playlist ->
+                        database.clearPlaylist(playlistId)
+                        database.delete(playlist)
                     }
                 }
             }
-        }
-    }
-
-    private fun isWeeklySyncDue(
-        lastSyncMillis: Long?,
-        now: LocalDateTime,
-    ): Boolean {
-        if (lastSyncMillis == null || lastSyncMillis <= 0L) return true
-
-        val lastSyncAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(lastSyncMillis), ZoneOffset.UTC)
-        return !lastSyncAt.plusWeeks(1).isAfter(now)
-    }
-
-    private fun isMonthlySyncDue(
-        lastSyncMillis: Long?,
-        now: LocalDateTime,
-    ): Boolean {
-        if (lastSyncMillis == null || lastSyncMillis <= 0L) return true
-
-        val lastSyncAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(lastSyncMillis), ZoneOffset.UTC)
-        return !lastSyncAt.plusMonths(1).isAfter(now)
-    }
-
-    private suspend fun syncMostPlaylist(
-        playlistId: String,
-        playlistName: String,
-        fromTimeStamp: Long,
-        hideVideoSongs: Boolean,
-        now: LocalDateTime,
-    ) {
-        val songs =
-            database
-                .mostPlayedSongs(
-                    fromTimeStamp = fromTimeStamp,
-                    limit = -1,
-                    toTimeStamp = now.toInstant(ZoneOffset.UTC).toEpochMilli(),
-                ).first()
-                .let { mostPlayedSongs ->
-                    if (hideVideoSongs) {
-                        mostPlayedSongs.filter { !it.song.isVideo }
-                    } else {
-                        mostPlayedSongs
-                    }
-                }.distinctBy { it.song.id }
-
-        val existingPlaylist = database.playlist(playlistId).first()?.playlist
-        val playlistEntity =
-            existingPlaylist?.copy(
-                name = playlistName,
-                isEditable = true,
-                bookmarkedAt = existingPlaylist.bookmarkedAt ?: now,
-                lastUpdateTime = now,
-            ) ?: PlaylistEntity(
-                id = playlistId,
-                name = playlistName,
-                isEditable = true,
-                bookmarkedAt = now,
-                lastUpdateTime = now,
-            )
-
-        if (existingPlaylist == null) {
-            database.insert(playlistEntity)
-        } else {
-            database.update(playlistEntity)
-        }
-
-        database.clearPlaylist(playlistId)
-
-        songs.forEachIndexed { position, song ->
-            database.insert(
-                PlaylistSongMap(
-                    songId = song.song.id,
-                    playlistId = playlistId,
-                    position = position,
-                ),
-            )
         }
     }
 

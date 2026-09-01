@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.menu
 
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
 import android.widget.Toast
 import androidx.annotation.DrawableRes
@@ -69,15 +70,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.net.toUri
 import androidx.media3.common.PlaybackParameters
-import androidx.media3.exoplayer.offline.Download
-import androidx.media3.exoplayer.offline.DownloadRequest
-import androidx.media3.exoplayer.offline.DownloadService
 import androidx.navigation.NavController
 import com.metrolist.innertube.YouTube
 import com.metrolist.music.LocalDatabase
-import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
@@ -87,7 +83,6 @@ import com.metrolist.music.listentogether.ConnectionState
 import com.metrolist.music.listentogether.ListenTogetherEvent
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.extensions.toMediaItem
-import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.SpotifyYouTubeMapper
 import com.metrolist.music.ui.component.YouTubeMatchDialog
 import com.metrolist.music.ui.component.BottomSheetState
@@ -137,10 +132,6 @@ fun PlayerMenu(
 
     val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
-
-    val download by LocalDownloadUtil.current
-        .getDownload(mediaMetadata.id)
-        .collectAsState(initial = null)
 
     val artists =
         remember(mediaMetadata.artists) {
@@ -580,82 +571,28 @@ fun PlayerMenu(
             Material3MenuGroup(
                 items =
                     listOf(
-                        when (download?.state) {
-                            Download.STATE_COMPLETED -> {
-                                Material3MenuItemData(
-                                    title = {
-                                        Text(
-                                            text = stringResource(R.string.remove_download),
-                                        )
-                                    },
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(R.drawable.offline),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                        )
-                                    },
-                                    onClick = {
-                                        DownloadService.sendRemoveDownload(
-                                            context,
-                                            ExoDownloadService::class.java,
-                                            mediaMetadata.id,
-                                            false,
-                                        )
-                                    },
+                        Material3MenuItemData(
+                            title = { Text(text = stringResource(R.string.share)) },
+                            icon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.share),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
                                 )
-                            }
-
-                            Download.STATE_QUEUED, Download.STATE_DOWNLOADING -> {
-                                Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.downloading)) },
-                                    icon = {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            strokeWidth = 2.dp,
+                            },
+                            onClick = {
+                                val intent =
+                                    Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(
+                                            Intent.EXTRA_TEXT,
+                                            "https://music.youtube.com/watch?v=${mediaMetadata.id}",
                                         )
-                                    },
-                                    onClick = {
-                                        DownloadService.sendRemoveDownload(
-                                            context,
-                                            ExoDownloadService::class.java,
-                                            mediaMetadata.id,
-                                            false,
-                                        )
-                                    },
-                                )
-                            }
-
-                            else -> {
-                                Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.action_download)) },
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(R.drawable.download),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                        )
-                                    },
-                                    onClick = {
-                                        database.transaction {
-                                            insert(mediaMetadata)
-                                        }
-                                        val downloadRequest =
-                                            DownloadRequest
-                                                .Builder(mediaMetadata.id, mediaMetadata.id.toUri())
-                                                .setCustomCacheKey(mediaMetadata.id)
-                                                .setData(mediaMetadata.title.toByteArray())
-                                                .build()
-                                        DownloadService.sendAddDownload(
-                                            context,
-                                            ExoDownloadService::class.java,
-                                            downloadRequest,
-                                            false,
-                                        )
-                                    },
-                                )
-                            }
-                        },
+                                    }
+                                context.startActivity(Intent.createChooser(intent, null))
+                                onDismiss()
+                            },
+                        ),
                     ),
             )
         }

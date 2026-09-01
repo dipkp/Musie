@@ -2,11 +2,7 @@
  * Metrolist Project (C) 2026
  * Licensed under GPL-3.0 | See git history for contributors
  *
- * Spotify login using an embedded WebView.
- * Loads Spotify's web login page, which supports all auth methods
- * (email/password, Facebook, Google, Apple). After successful login,
- * the WebView redirect to open.spotify.com is intercepted and the
- * sp_dc cookie is extracted to fetch an access token.
+ * Spotify login through an embedded email/password flow.
  *
  * Token acquisition uses TOTP (Time-based One-Time Password) generated
  * from a community-maintained shared secret, following the approach used
@@ -76,6 +72,7 @@ import com.metrolist.music.constants.SpotifyUsernameKey
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.dataStore
+import com.metrolist.music.utils.get
 import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.SpotifyAuth
 import kotlinx.coroutines.CancellationException
@@ -110,6 +107,19 @@ fun SpotifyLoginScreen(navController: NavController) {
                     Icon(painterResource(R.drawable.arrow_back), contentDescription = null)
                 }
             },
+        )
+
+        Text(
+            text = stringResource(R.string.spotify_password_login),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+        )
+        Text(
+            text = stringResource(R.string.spotify_password_login_description),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 0.dp),
         )
 
         if (isLoading || isProcessing) {

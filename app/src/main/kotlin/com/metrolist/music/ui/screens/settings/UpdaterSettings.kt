@@ -8,14 +8,12 @@ package com.metrolist.music.ui.screens.settings
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -29,9 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -53,192 +49,103 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UpdaterScreen(
-    navController: NavController
-) {
-    val (checkForUpdates, onCheckForUpdatesChange) = rememberPreference(CheckForUpdatesKey, true)
-    val (updateNotifications, onUpdateNotificationsChange) = rememberPreference(UpdateNotificationsEnabledKey, true)
+fun UpdaterScreen(navController: NavController) {
+    val (automaticChecks, setAutomaticChecks) = rememberPreference(CheckForUpdatesKey, true)
+    val (notifications, setNotifications) = rememberPreference(UpdateNotificationsEnabledKey, true)
+    var checking by remember { mutableStateOf(false) }
+    var resultText by remember { mutableStateOf<String?>(null) }
+    var resultIsError by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
-    val context = LocalContext.current
-    var isChecking by remember { mutableStateOf(false) }
-    var updateAvailable by remember { mutableStateOf(false) }
-    var latestVersion by remember { mutableStateOf<String?>(null) }
-    var showChangelog by remember { mutableStateOf(false) }
-    var changelogContent by remember { mutableStateOf<String?>(null) }
-    var checkError by remember { mutableStateOf<String?>(null) }
-    val failedToCheckUpdatesTemplate = stringResource(R.string.failed_to_check_updates)
-
-    val coroutineScope = rememberCoroutineScope()
-
-    fun performManualCheck() {
-        coroutineScope.launch {
-            isChecking = true
-            checkError = null
-            withContext(Dispatchers.IO) {
-                Updater
-                    .checkForUpdate(forceRefresh = true)
-                    .onSuccess { (releaseInfo, hasUpdate) ->
-                        if (releaseInfo != null) {
-                            latestVersion = releaseInfo.versionName
-                            updateAvailable = hasUpdate
-                            changelogContent = releaseInfo.description
+    fun checkNow() {
+        if (checking) return
+        scope.launch {
+            checking = true
+            resultText = null
+            val result = withContext(Dispatchers.IO) { Updater.checkForUpdate(forceRefresh = true) }
+            result.fold(
+                onSuccess = { (release, available) ->
+                    resultIsError = false
+                    resultText =
+                        when {
+                            release == null -> "No published Musie release was found."
+                            available -> "Musie ${release.versionName} is available."
+                            else -> "Musie is up to date (${BuildConfig.VERSION_NAME})."
                         }
-                    }.onFailure {
-                        checkError = String.format(failedToCheckUpdatesTemplate, it.message ?: "Unknown error")
-                    }
-            }
-            isChecking = false
+                },
+                onFailure = {
+                    resultIsError = true
+                    resultText = "Update check failed: ${it.message ?: "unknown error"}"
+                },
+            )
+            checking = false
         }
     }
 
     Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(
-                    LocalPlayerAwareWindowInsets.current.only(
-                        WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
-                    ),
-                ).verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        Modifier
+            .windowInsetsPadding(
+                LocalPlayerAwareWindowInsets.current.only(
+                    WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+                ),
+            ).verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
     ) {
         Spacer(
             Modifier.windowInsetsPadding(
-                LocalPlayerAwareWindowInsets.current.only(
-                    WindowInsetsSides.Top,
-                ),
+                LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Top),
             ),
         )
-
-        Spacer(Modifier.height(4.dp))
-
         Material3SettingsGroup(
             title = stringResource(R.string.current_version),
             items =
                 listOf(
                     Material3SettingsItem(
-                        title = {
-                            Text(stringResource(R.string.version_format, BuildConfig.VERSION_NAME))
-                        },
-                        description = {
-                            val arch = BuildConfig.ARCHITECTURE
-                            val variant = if (BuildConfig.CAST_AVAILABLE) "GMS" else "FOSS"
-                            Text("$arch - $variant")
-                        },
+                        icon = painterResource(R.drawable.info),
+                        title = { Text("Musie ${BuildConfig.VERSION_NAME}") },
+                        description = { Text("${BuildConfig.ARCHITECTURE.uppercase()} • ${if (BuildConfig.DEBUG) "DEBUG" else "RELEASE"}") },
                     ),
                 ),
         )
-
-        Spacer(Modifier.height(16.dp))
-
+        Spacer(Modifier.height(20.dp))
         Material3SettingsGroup(
             title = stringResource(R.string.update_settings),
             items =
-                buildList {
-                    add(
-                        Material3SettingsItem(
-                            title = { Text(stringResource(R.string.check_for_updates)) },
-                            icon = painterResource(R.drawable.update),
-                            trailingContent = {
-                                Switch(
-                                    checked = checkForUpdates,
-                                    onCheckedChange = onCheckForUpdatesChange,
-                                )
-                            },
-                            onClick = { onCheckForUpdatesChange(!checkForUpdates) },
-                        ),
-                    )
-
-                    if (checkForUpdates) {
-                        add(
-                            Material3SettingsItem(
-                                title = { Text(stringResource(R.string.update_notifications)) },
-                                icon = painterResource(R.drawable.notification),
-                                trailingContent = {
-                                    Switch(
-                                        checked = updateNotifications,
-                                        onCheckedChange = onUpdateNotificationsChange,
-                                    )
-                                },
-                                onClick = { onUpdateNotificationsChange(!updateNotifications) },
-                            ),
-                        )
-                    }
-                },
-        )
-
-        Spacer(Modifier.height(16.dp))
-
-        Material3SettingsGroup(
-            title = stringResource(R.string.check_for_updates_title),
-            items =
                 listOf(
                     Material3SettingsItem(
-                        icon = painterResource(R.drawable.refresh),
-                        title = {
-                            if (isChecking) {
-                                Text(stringResource(R.string.checking_for_updates))
-                            } else if (latestVersion != null) {
-                                Text(stringResource(R.string.latest_version_format, latestVersion!!))
-                            } else {
-                                Text(stringResource(R.string.check_for_updates_button))
-                            }
-                        },
+                        icon = painterResource(R.drawable.update),
+                        title = { Text(stringResource(R.string.check_for_updates)) },
                         trailingContent = {
-                            if (isChecking) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.padding(end = 16.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            } else if (updateAvailable) {
-                                Icon(
-                                    painter = painterResource(R.drawable.download),
-                                    contentDescription = stringResource(R.string.update_available_title),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
+                            Switch(checked = automaticChecks, onCheckedChange = setAutomaticChecks)
                         },
-                        onClick = { if (!isChecking) performManualCheck() },
+                        onClick = { setAutomaticChecks(!automaticChecks) },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.notification),
+                        title = { Text(stringResource(R.string.update_notifications)) },
+                        trailingContent = {
+                            Switch(checked = notifications, onCheckedChange = setNotifications)
+                        },
+                        onClick = { setNotifications(!notifications) },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.refresh),
+                        title = { Text(stringResource(R.string.check_for_updates_button)) },
+                        trailingContent = {
+                            if (checking) CircularProgressIndicator(strokeWidth = 2.dp)
+                        },
+                        onClick = ::checkNow,
                     ),
                 ),
         )
-
-        checkError?.let {
-            Spacer(Modifier.height(12.dp))
+        resultText?.let {
+            Spacer(Modifier.height(16.dp))
             Text(
                 text = it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(horizontal = 16.dp),
+                color = if (resultIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 12.dp),
             )
         }
-
-        if (updateAvailable && latestVersion != null) {
-            Spacer(Modifier.height(16.dp))
-            Button(
-                onClick = { showChangelog = !showChangelog },
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-            ) {
-                Text(if (showChangelog) stringResource(R.string.hide_changelog) else stringResource(R.string.view_changelog))
-            }
-
-            if (showChangelog && changelogContent != null) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = changelogContent!!,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                )
-            }
-        }
-
         Spacer(Modifier.height(32.dp))
     }
 
@@ -249,10 +156,7 @@ fun UpdaterScreen(
                 onClick = navController::navigateUp,
                 onLongClick = navController::backToMain,
             ) {
-                Icon(
-                    painter = painterResource(R.drawable.arrow_back),
-                    contentDescription = null,
-                )
+                Icon(painterResource(R.drawable.arrow_back), contentDescription = null)
             }
         },
     )

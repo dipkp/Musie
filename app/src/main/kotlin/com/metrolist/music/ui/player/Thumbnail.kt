@@ -40,8 +40,6 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,15 +52,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -82,7 +75,6 @@ import com.metrolist.music.constants.InnerTubeCookieKey
 import com.metrolist.music.constants.PlayerBackgroundStyle
 import com.metrolist.music.constants.PlayerBackgroundStyleKey
 import com.metrolist.music.constants.PlayerHorizontalPadding
-import com.metrolist.music.constants.SeekExtraSeconds
 import com.metrolist.music.constants.SwipeThumbnailKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.listentogether.RoomRole
@@ -92,7 +84,6 @@ import com.metrolist.music.ui.utils.ytVideoThumbFallback
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.innertube.utils.parseCookieString
-import kotlinx.coroutines.delay
 
 /**
  * Pre-calculated thumbnail dimensions to avoid repeated calculations during recomposition.
@@ -141,7 +132,6 @@ private fun calculateThumbnailDimensions(
         cornerRadius = cornerRadius * 2
     )
 }
-
 /**
  * Get media items for the thumbnail carousel.
  * Calculates previous, current, and next items based on shuffle mode.
@@ -196,8 +186,7 @@ private fun getMediaItems(
 private fun getTextColor(playerBackground: PlayerBackgroundStyle): Color {
     return when (playerBackground) {
         PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.onBackground
-        PlayerBackgroundStyle.BLUR -> Color.White
-        PlayerBackgroundStyle.GRADIENT -> Color.White
+        else -> Color.White
     }
 }
 
@@ -211,11 +200,10 @@ fun Thumbnail(
     isListenTogetherGuest: Boolean = false,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
-    val context = LocalContext.current
-    val layoutDirection = LocalLayoutDirection.current
 
     // Collect states
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val currentSong by playerConnection.currentSong.collectAsState(initial = null)
     val error by playerConnection.error.collectAsState()
     val queueTitle by playerConnection.queueTitle.collectAsState()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
@@ -304,10 +292,6 @@ fun Thumbnail(
         }
     }
 
-    // Seek effect state
-    var showSeekEffect by remember { mutableStateOf(false) }
-    var seekDirection by remember { mutableStateOf("") }
-
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -335,7 +319,7 @@ fun Thumbnail(
 
         // Main thumbnail view
         AnimatedVisibility(
-            visible = error == null,
+            visible = error == null && !(playerBackground == PlayerBackgroundStyle.APPLE_MUSIC && !isLandscape),
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
@@ -374,14 +358,6 @@ fun Thumbnail(
                         )
                     }
 
-                    // Remember the onSeek callback to prevent recomposition
-                    val onSeekCallback = remember {
-                        { direction: String, showEffect: Boolean ->
-                            seekDirection = direction
-                            showSeekEffect = showEffect
-                        }
-                    }
-                    
                     // Derive scroll enabled state to prevent unnecessary recomposition
                     val isScrollEnabled by remember(swipeThumbnail) {
                         derivedStateOf { swipeThumbnail && isPlayerExpanded() }
@@ -410,12 +386,10 @@ fun Thumbnail(
                                 hidePlayerThumbnail = hidePlayerThumbnail,
                                 cropAlbumArt = cropAlbumArt,
                                 textBackgroundColor = textBackgroundColor,
-                                layoutDirection = layoutDirection,
-                                onSeek = onSeekCallback,
                                 playerConnection = playerConnection,
-                                context = context,
                                 isLandscape = isLandscape,
                                 isListenTogetherGuest = isListenTogetherGuest,
+                                isCurrentSongLiked = currentSong?.song?.liked == true,
                                 currentMediaId = mediaMetadata?.id,
                                 currentMediaThumbnail = mediaMetadata?.thumbnailUrl
                             )
@@ -425,22 +399,6 @@ fun Thumbnail(
             }
         }
 
-        // Seek effect
-        LaunchedEffect(showSeekEffect) {
-            if (showSeekEffect) {
-                delay(1000)
-                showSeekEffect = false
-            }
-        }
-
-        AnimatedVisibility(
-            visible = showSeekEffect,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.Center)
-        ) {
-            SeekEffectOverlay(seekDirection = seekDirection)
-        }
     }
 }
 
@@ -507,20 +465,14 @@ private fun ThumbnailItem(
     hidePlayerThumbnail: Boolean,
     cropAlbumArt: Boolean,
     textBackgroundColor: Color,
-    layoutDirection: LayoutDirection,
-    onSeek: (String, Boolean) -> Unit,
     playerConnection: com.metrolist.music.playback.PlayerConnection,
-    context: android.content.Context,
     isLandscape: Boolean = false,
     isListenTogetherGuest: Boolean = false,
+    isCurrentSongLiked: Boolean = false,
     currentMediaId: String? = null,
     currentMediaThumbnail: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    val incrementalSeekSkipEnabled by rememberPreference(SeekExtraSeconds, defaultValue = false)
-    var skipMultiplier by remember { mutableIntStateOf(1) }
-    var lastTapTime by remember { mutableLongStateOf(0L) }
-
     Box(
         modifier = modifier
             .then(
@@ -539,31 +491,10 @@ private fun ThumbnailItem(
             }
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onDoubleTap = { offset ->
+                    onDoubleTap = {
                         if (isListenTogetherGuest) return@detectTapGestures
-
-                        val currentPosition = playerConnection.player.currentPosition
-                        val duration = playerConnection.player.duration
-
-                        val now = System.currentTimeMillis()
-                        if (incrementalSeekSkipEnabled && now - lastTapTime < 1000) {
-                            skipMultiplier++
-                        } else {
-                            skipMultiplier = 1
-                        }
-                        lastTapTime = now
-
-                        val skipAmount = 5000 * skipMultiplier
-
-                        val isLeftSide = (layoutDirection == LayoutDirection.Ltr && offset.x < size.width / 2) ||
-                                (layoutDirection == LayoutDirection.Rtl && offset.x > size.width / 2)
-
-                        if (isLeftSide) {
-                            playerConnection.player.seekTo((currentPosition - skipAmount).coerceAtLeast(0))
-                            onSeek(context.getString(R.string.seek_backward_dynamic, skipAmount / 1000), true)
-                        } else {
-                            playerConnection.player.seekTo((currentPosition + skipAmount).coerceAtMost(duration))
-                            onSeek(context.getString(R.string.seek_forward_dynamic, skipAmount / 1000), true)
+                        if (!isCurrentSongLiked) {
+                            playerConnection.toggleLike()
                         }
                     }
                 )
@@ -679,24 +610,4 @@ private fun ThumbnailImage(
             SubcomposeAsyncImageContent()
         }
     }
-}
-
-/**
- * Seek effect overlay showing seek direction.
- */
-@Composable
-private fun SeekEffectOverlay(
-    seekDirection: String,
-    modifier: Modifier = Modifier
-) {
-    Text(
-        text = seekDirection,
-        color = Color.White,
-        fontSize = 16.sp,
-        fontWeight = FontWeight.Bold,
-        textAlign = TextAlign.Center,
-        modifier = modifier
-            .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
-            .padding(8.dp)
-    )
 }

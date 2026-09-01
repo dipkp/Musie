@@ -126,7 +126,11 @@ fun SearchScreen(
 
     var searchSource by rememberEnumPreference(SearchSourceKey, SearchSource.ONLINE)
     var query by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue())
+        val retainedQuery = savedStateHandle.get<String>("lastSearchQuery").orEmpty()
+        mutableStateOf(TextFieldValue(retainedQuery))
+    }
+    LaunchedEffect(query.text) {
+        savedStateHandle["lastSearchQuery"] = query.text
     }
     val pauseSearchHistory by rememberPreference(PauseSearchHistoryKey, defaultValue = false)
 

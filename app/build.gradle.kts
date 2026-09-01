@@ -35,7 +35,7 @@ android {
         targetSdk = 36
         versionCode = 25
         versionName = "0.8.9"
-        resValue("string", "app_name", appNameOverride ?: "Meld")
+        resValue("string", "app_name", appNameOverride ?: "Musie")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -46,13 +46,18 @@ android {
 
         buildConfigField("String", "LASTFM_API_KEY", "\"$lastFmKey\"")
         buildConfigField("String", "LASTFM_SECRET", "\"$lastFmSecret\"")
+        val spotifyClientId =
+            localProperties.getProperty("SPOTIFY_CLIENT_ID")
+                ?: System.getenv("SPOTIFY_CLIENT_ID")
+                ?: ""
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "ARCHITECTURE", "\"universal\"")
 
         // Crash reporting target: GitHub repo (owner/name) where Issues are created,
         // and a fine-grained PAT with issues:write scoped to that repo only.
         // Both must be present at build time for reporting to be active at runtime.
         val crashRepo = localProperties.getProperty("CRASH_REPORT_REPO")
-            ?: System.getenv("CRASH_REPORT_REPO") ?: "francescograzioso/Meld"
+            ?: System.getenv("CRASH_REPORT_REPO") ?: "Dkpfy/Musie"
         val crashToken = localProperties.getProperty("CRASH_REPORT_TOKEN")
             ?: System.getenv("CRASH_REPORT_TOKEN") ?: ""
         buildConfigField("String", "CRASH_REPORT_REPO", "\"$crashRepo\"")
@@ -131,7 +136,7 @@ android {
             }
             isDebuggable = true
             if (appNameOverride == null) {
-                resValue("string", "app_name", "Meld Debug")
+                resValue("string", "app_name", "Musie")
             }
             signingConfig =
                 if (workflowDebugKeystoreFile != null) {
@@ -284,7 +289,6 @@ dependencies {
     implementation(project(":innertube"))
     implementation(project(":kugou"))
     implementation(project(":lrclib"))
-    implementation(project(":kizzy"))
     implementation(project(":lastfm"))
     implementation(project(":betterlyrics"))
     implementation(project(":shazamkit"))

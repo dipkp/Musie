@@ -38,7 +38,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -179,7 +178,7 @@ fun CrashScreen(
                 Text(
                     text = crashLog,
                     style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = com.metrolist.music.ui.theme.spotifyMixUi,
                         fontSize = 11.sp,
                         lineHeight = 16.sp
                     ),

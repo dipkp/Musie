@@ -20,7 +20,6 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -67,7 +66,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
@@ -126,20 +124,29 @@ import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.music.constants.AppBarHeight
 import com.metrolist.music.constants.AppLanguageKey
 import com.metrolist.music.constants.CheckForUpdatesKey
+import com.metrolist.music.constants.ClassicHomeTitleKey
 import com.metrolist.music.constants.DarkModeKey
 import com.metrolist.music.constants.DefaultOpenTabKey
 import com.metrolist.music.constants.DisableScreenshotKey
 import com.metrolist.music.constants.DynamicThemeKey
 import com.metrolist.music.constants.EnableHighRefreshRateKey
 import com.metrolist.music.constants.ExperimentalLyricsKey
-import com.metrolist.music.constants.LastSeenVersionKey
+import com.metrolist.music.constants.GlassNavigationKey
 import com.metrolist.music.constants.ListenTogetherInTopBarKey
 import com.metrolist.music.constants.ListenTogetherUsernameKey
 import com.metrolist.music.constants.LyricsProviderOrderKey
 import com.metrolist.music.constants.SpotifyAccessTokenKey
+import com.metrolist.music.constants.SpotifyClientIdKey
+import com.metrolist.music.constants.SpotifyOAuthStateKey
+import com.metrolist.music.constants.SpotifyOAuthVerifierKey
+import com.metrolist.music.constants.SpotifyRefreshTokenKey
+import com.metrolist.music.constants.SpotifySpDcKey
+import com.metrolist.music.constants.SpotifySpKeyKey
+import com.metrolist.music.constants.SpotifyTokenExpiryKey
+import com.metrolist.music.constants.SpotifyUserIdKey
+import com.metrolist.music.constants.SpotifyUsernameKey
 import com.metrolist.music.constants.MiniPlayerBottomSpacing
 import com.metrolist.music.constants.MiniPlayerHeight
-import com.metrolist.music.constants.NavigationBarAnimationSpec
 import com.metrolist.music.constants.NavigationBarHeight
 import com.metrolist.music.constants.PauseListenHistoryKey
 import com.metrolist.music.constants.PauseSearchHistoryKey
@@ -149,8 +156,6 @@ import com.metrolist.music.constants.PureBlackKey
 import com.metrolist.music.constants.SYSTEM_DEFAULT
 import com.metrolist.music.constants.SelectedThemeColorKey
 import com.metrolist.music.constants.SimpMusicMigrationDoneKey
-import com.metrolist.music.constants.SlimNavBarHeight
-import com.metrolist.music.constants.SlimNavBarKey
 import com.metrolist.music.constants.StopMusicOnTaskClearKey
 import com.metrolist.music.constants.UpdateNotificationsEnabledKey
 import com.metrolist.music.constants.UseNewMiniPlayerDesignKey
@@ -165,10 +170,10 @@ import com.metrolist.music.playback.MusicService.MusicBinder
 import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.AccountSettingsDialog
-import com.metrolist.music.ui.component.AppNavigationBar
 import com.metrolist.music.ui.component.AppNavigationRail
 import com.metrolist.music.ui.component.BottomSheetMenu
 import com.metrolist.music.ui.component.BottomSheetPage
+import com.metrolist.music.ui.component.ClassicFloatingNavigationToolbar
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.rememberBottomSheetState
@@ -177,7 +182,6 @@ import com.metrolist.music.ui.menu.YouTubeSongMenu
 import com.metrolist.music.ui.player.BottomSheetPlayer
 import com.metrolist.music.ui.screens.Screens
 import com.metrolist.music.ui.screens.navigationBuilder
-import com.metrolist.music.ui.screens.settings.ChangelogScreen
 import com.metrolist.music.ui.screens.settings.DarkMode
 import com.metrolist.music.ui.screens.settings.NavigationTab
 import com.metrolist.music.ui.theme.ColorSaver
@@ -195,6 +199,7 @@ import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.utils.reportException
 import com.metrolist.spotify.Spotify
+import com.metrolist.spotify.SpotifyAuth
 
 import com.metrolist.music.utils.setAppLocale
 import com.metrolist.music.viewmodels.HomeViewModel
@@ -211,6 +216,7 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.security.MessageDigest
 import java.util.Locale
 import javax.inject.Inject
 
@@ -312,14 +318,14 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Explicitly start the service so it becomes an "explicitly started" service.
-        // Without this, the service only exists while a client is bound (BIND_AUTO_CREATE).
-        // When onStop() releases the binding (e.g. screen off, app backgrounded), Media3's
-        // MediaNotificationManager tries to keep the service alive, but this is blocked on
-        // Android 12+ when the app is in the background. Using startForegroundService() ensures
-        // the service persists independently of binding state on all Android versions, including
-        // Android 16+ where startService() from background contexts is not allowed.
-        ContextCompat.startForegroundService(this, Intent(this, MusicService::class.java))
+        // onStart() can run repeatedly while the same MediaLibraryService instance is alive.
+        // Starting an already-created service as a foreground service creates a new foreground
+        // deadline, but onCreate() (where the bootstrap notification is posted) does not run
+        // again. Android then reports an ANR even though playback itself is responsive. This
+        // activity is visible here, so a regular explicit start is both permitted and avoids
+        // creating that unmatched foreground-service deadline. Media3 promotes the service while
+        // media is playing and the service remains independently started when the UI unbinds.
+        startService(Intent(this, MusicService::class.java))
         
         // Bind to service - if already bound, this is a no-op but ensures we stay connected
         if (!isServiceBound) {
@@ -525,8 +531,6 @@ class MainActivity : ComponentActivity() {
         val (selectedThemeColorInt) = rememberPreference(SelectedThemeColorKey, defaultValue = DefaultThemeColor.toArgb())
         val selectedThemeColor = Color(selectedThemeColorInt)
 
-        val showChangelog = rememberSaveable { mutableStateOf(false) }
-
         var themeColor by rememberSaveable(stateSaver = ColorSaver) {
             mutableStateOf(selectedThemeColor)
         }
@@ -593,12 +597,6 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
 
                 LaunchedEffect(Unit) {
-                    val lastSeenVersion = dataStore.data.first()[LastSeenVersionKey] ?: ""
-                    val currentVersion = BuildConfig.VERSION_NAME
-                    if (lastSeenVersion != currentVersion) {
-                        showChangelog.value = true
-                    }
-
                     // SimpMusic Removal Migration
                     if (dataStore.data.first()[SimpMusicMigrationDoneKey] != true) {
                         dataStore.edit { settings ->
@@ -625,28 +623,18 @@ class MainActivity : ComponentActivity() {
                             settings[SimpMusicMigrationDoneKey] = true
                         }
                     }
-
-                    dataStore.edit { settings ->
-                        settings[LastSeenVersionKey] = currentVersion
-                    }
                 }
 
                 val homeViewModel: HomeViewModel = hiltViewModel()
+                val accountName by homeViewModel.accountName.collectAsState()
                 val accountImageUrl by homeViewModel.accountImageUrl.collectAsState()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val (previousTab, setPreviousTab) = rememberSaveable { mutableStateOf("home") }
 
                 val (listenTogetherInTopBar) = rememberPreference(ListenTogetherInTopBarKey, defaultValue = true)
-                val navigationItems =
-                    remember(listenTogetherInTopBar) {
-                        if (listenTogetherInTopBar) {
-                            Screens.MainScreens.filter { it != Screens.ListenTogether }
-                        } else {
-                            Screens.MainScreens
-                        }
-                    }
-                val (slimNav) = rememberPreference(SlimNavBarKey, defaultValue = false)
+                val navigationItems = remember { Screens.MainScreens }
                 val (useNewMiniPlayerDesign) = rememberPreference(UseNewMiniPlayerDesignKey, defaultValue = true)
+                val (glassNavigation) = rememberPreference(GlassNavigationKey, defaultValue = false)
                 val defaultOpenTab =
                     remember {
                         dataStore[DefaultOpenTabKey].toEnum(defaultValue = NavigationTab.HOME)
@@ -707,8 +695,12 @@ class MainActivity : ComponentActivity() {
                 val shouldShowNavigationBar =
                     remember(currentRoute, navigationItemRoutes) {
                         currentRoute == null ||
-                            navigationItemRoutes.contains(currentRoute) ||
-                            currentRoute!!.startsWith("search/")
+                            navigationItemRoutes.contains(currentRoute)
+                    }
+
+                val shouldShowPlayer =
+                    remember(currentRoute) {
+                        currentRoute != "wrapped" && currentRoute?.startsWith("settings") != true
                     }
 
                 val isLandscape = configuration.containerDpSize.width > configuration.containerDpSize.height
@@ -717,16 +709,10 @@ class MainActivity : ComponentActivity() {
 
                 val navPadding =
                     if (shouldShowNavigationBar && !showRail) {
-                        if (slimNav) SlimNavBarHeight else NavigationBarHeight
+                        NavigationBarHeight
                     } else {
                         0.dp
                     }
-
-                val navigationBarHeight by animateDpAsState(
-                    targetValue = if (shouldShowNavigationBar && !showRail) NavigationBarHeight else 0.dp,
-                    animationSpec = NavigationBarAnimationSpec,
-                    label = "navBarHeight",
-                )
 
                 val playerBottomSheetState =
                     rememberBottomSheetState(
@@ -739,10 +725,23 @@ class MainActivity : ComponentActivity() {
                         expandedBound = maxHeight,
                     )
 
+                val onShuffleClick: (() -> Unit)? =
+                    remember(playerConnection, playerBottomSheetState) {
+                        playerConnection?.let { connection ->
+                            {
+                                if (playerBottomSheetState.isExpanded) {
+                                    playerBottomSheetState.collapseSoft()
+                                }
+                                connection.player.shuffleModeEnabled = !connection.player.shuffleModeEnabled
+                            }
+                        }
+                    }
+
                 val playerAwareWindowInsets =
                     remember(
                         bottomInset,
                         shouldShowNavigationBar,
+                        shouldShowPlayer,
                         playerBottomSheetState.isDismissed,
                         showRail,
                     ) {
@@ -750,7 +749,7 @@ class MainActivity : ComponentActivity() {
                         if (shouldShowNavigationBar && !showRail) {
                             bottom += NavigationBarHeight
                         }
-                        if (!playerBottomSheetState.isDismissed) bottom += MiniPlayerHeight
+                        if (shouldShowPlayer && !playerBottomSheetState.isDismissed) bottom += MiniPlayerHeight
                         windowsInsets
                             .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
                             .add(WindowInsets(top = AppBarHeight, bottom = bottom))
@@ -892,6 +891,11 @@ class MainActivity : ComponentActivity() {
                             else -> null
                         }
                     }
+                val (classicHomeTitle) =
+                    rememberPreference(
+                        ClassicHomeTitleKey,
+                        defaultValue = "",
+                    )
 
                 var showAccountDialog by remember { mutableStateOf(false) }
 
@@ -913,12 +917,7 @@ class MainActivity : ComponentActivity() {
                     LocalShimmerTheme provides ShimmerTheme,
                     LocalSyncUtils provides syncUtils,
                     LocalListenTogetherManager provides listenTogetherManager,
-                    LocalChangelogState provides showChangelog,
                 ) {
-                    if (showChangelog.value) {
-                        ChangelogScreen(onDismiss = { showChangelog.value = false })
-                    }
-
                     Scaffold(
                         snackbarHost = { SnackbarHost(snackbarHostState) },
                         topBar = {
@@ -931,7 +930,14 @@ class MainActivity : ComponentActivity() {
                                     TopAppBar(
                                         title = {
                                             Text(
-                                                text = currentTitleRes?.let { stringResource(it) } ?: "",
+                                                text =
+                                                    if (currentRoute == Screens.Home.route) {
+                                                        classicHomeTitle.ifBlank {
+                                                            accountName.takeUnless { it.isBlank() || it == "Guest" } ?: "Musie"
+                                                        }
+                                                    } else {
+                                                        currentTitleRes?.let { stringResource(it) } ?: ""
+                                                    },
                                                 style = MaterialTheme.typography.titleLarge,
                                             )
                                         },
@@ -1051,56 +1057,31 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
-                            val onSearchLongClick: () -> Unit =
-                                remember(navController) {
-                                    {
-                                        navController.navigate("recognition") {
-                                            launchSingleTop = true
-                                        }
-                                    }
-                                }
-
                             // Pre-calculate values for graphicsLayer to avoid reading state during composition
-                            val navBarTotalHeight = bottomInset + NavigationBarHeight
-
                             if (!showRail && currentRoute != "wrapped") {
                                 Box {
-                                    BottomSheetPlayer(
-                                        state = playerBottomSheetState,
-                                        navController = navController,
-                                        pureBlack = pureBlack,
-                                    )
+                                    if (shouldShowPlayer) {
+                                        BottomSheetPlayer(
+                                            state = playerBottomSheetState,
+                                            navController = navController,
+                                            pureBlack = pureBlack,
+                                        )
+                                    }
 
-                                    AppNavigationBar(
-                                        navigationItems = navigationItems,
-                                        currentRoute = currentRoute,
-                                        onItemClick = onNavItemClick,
-                                        pureBlack = pureBlack,
-                                        slimNav = slimNav,
-                                        onSearchLongClick = onSearchLongClick,
-                                        modifier =
-                                            Modifier
-                                                .align(Alignment.BottomCenter)
-                                                .height(bottomInset + navPadding)
-                                                // Use graphicsLayer instead of offset to avoid recomposition
-                                                // graphicsLayer runs during draw phase, not composition phase
-                                                .graphicsLayer {
-                                                    val navBarHeightPx = navigationBarHeight.toPx()
-                                                    val totalHeightPx = navBarTotalHeight.toPx()
-
-                                                    translationY =
-                                                        if (navBarHeightPx == 0f) {
-                                                            totalHeightPx
-                                                        } else {
-                                                            // Read progress only during draw phase
-                                                            val progress = playerBottomSheetState.progress.coerceIn(0f, 1f)
-                                                            val slideOffset = totalHeightPx * progress
-                                                            val hideOffset =
-                                                                totalHeightPx * (1 - navBarHeightPx / NavigationBarHeight.toPx())
-                                                            slideOffset + hideOffset
-                                                        }
-                                                },
-                                    )
+                                    if (shouldShowNavigationBar && playerBottomSheetState.progress <= 0.01f) {
+                                        ClassicFloatingNavigationToolbar(
+                                            items = navigationItems,
+                                            pureBlack = pureBlack,
+                                            glassEnabled = glassNavigation,
+                                            isSelected = { screen -> currentRoute == screen.route },
+                                            onItemClick = onNavItemClick,
+                                            modifier =
+                                                Modifier
+                                                    .align(Alignment.BottomCenter)
+                                                    .fillMaxWidth()
+                                                    .height(NavigationBarHeight + bottomInset),
+                                        )
+                                    }
 
                                     Box(
                                         modifier =
@@ -1123,7 +1104,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                             } else {
-                                if (currentRoute != "wrapped") {
+                                if (shouldShowPlayer) {
                                     BottomSheetPlayer(
                                         state = playerBottomSheetState,
                                         navController = navController,
@@ -1176,22 +1157,13 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
-                            val onRailSearchLongClick: () -> Unit =
-                                remember(navController) {
-                                    {
-                                        navController.navigate("recognition") {
-                                            launchSingleTop = true
-                                        }
-                                    }
-                                }
-
                             if (showRail && currentRoute != "wrapped") {
                                 AppNavigationRail(
                                     navigationItems = navigationItems,
                                     currentRoute = currentRoute,
                                     onItemClick = onRailItemClick,
                                     pureBlack = pureBlack,
-                                    onSearchLongClick = onRailSearchLongClick,
+                                    onSearchLongClick = {},
                                 )
                             }
                             Box(Modifier.weight(1f)) {
@@ -1363,6 +1335,74 @@ class MainActivity : ComponentActivity() {
         intent.removeExtra(Intent.EXTRA_TEXT)
         val coroutineScope = lifecycle.coroutineScope
 
+        if (uri.scheme == "meld" && uri.host == "spotify" && uri.path == "/callback") {
+            val authorizationCode = uri.getQueryParameter("code")
+            val callbackState = uri.getQueryParameter("state")
+            val oauthError = uri.getQueryParameter("error")
+            coroutineScope.launch(Dispatchers.IO) {
+                val settings = dataStore.data.first()
+                val expectedState = settings[SpotifyOAuthStateKey].orEmpty()
+                val verifier = settings[SpotifyOAuthVerifierKey].orEmpty()
+                val clientId = settings[SpotifyClientIdKey].orEmpty().ifBlank { BuildConfig.SPOTIFY_CLIENT_ID }
+                val stateMatches = expectedState.isNotEmpty() && callbackState != null &&
+                    MessageDigest.isEqual(
+                        expectedState.toByteArray(Charsets.UTF_8),
+                        callbackState.toByteArray(Charsets.UTF_8),
+                    )
+
+                if (oauthError != null || authorizationCode.isNullOrBlank() || verifier.isBlank() ||
+                    clientId.isBlank() || !stateMatches
+                ) {
+                    Timber.w(
+                        "Spotify OAuth callback rejected: error=%s code=%s verifier=%s clientId=%s state=%s",
+                        oauthError,
+                        !authorizationCode.isNullOrBlank(),
+                        verifier.isNotBlank(),
+                        clientId.isNotBlank(),
+                        stateMatches,
+                    )
+                    dataStore.edit { prefs ->
+                        prefs.remove(SpotifyOAuthVerifierKey)
+                        prefs.remove(SpotifyOAuthStateKey)
+                    }
+                    return@launch
+                }
+
+                SpotifyAuth.exchangeCodeForToken(clientId, authorizationCode, verifier)
+                    .onSuccess { token ->
+                        Spotify.accessToken = token.accessToken
+                        dataStore.edit { prefs ->
+                            prefs[SpotifyAccessTokenKey] = token.accessToken
+                            prefs[SpotifyTokenExpiryKey] =
+                                System.currentTimeMillis() + token.expiresIn * 1000L
+                            token.refreshToken?.takeIf(String::isNotBlank)?.let {
+                                prefs[SpotifyRefreshTokenKey] = it
+                            }
+                            prefs.remove(SpotifySpDcKey)
+                            prefs.remove(SpotifySpKeyKey)
+                            prefs.remove(SpotifyOAuthVerifierKey)
+                            prefs.remove(SpotifyOAuthStateKey)
+                        }
+                        Spotify.me().onSuccess { user ->
+                            dataStore.edit { prefs ->
+                                prefs[SpotifyUsernameKey] = user.displayName ?: user.id
+                                prefs[SpotifyUserIdKey] = user.id
+                            }
+                        }.onFailure { reportException(it) }
+                        Timber.d("Spotify secure browser login successful")
+                    }
+                    .onFailure { error ->
+                        dataStore.edit { prefs ->
+                            prefs.remove(SpotifyOAuthVerifierKey)
+                            prefs.remove(SpotifyOAuthStateKey)
+                        }
+                        Timber.e(error, "Spotify OAuth token exchange failed")
+                        reportException(error)
+                    }
+            }
+            return
+        }
+
         val listenCode =
             uri.getQueryParameter("code")
                 ?: uri.getQueryParameter("room")
@@ -1484,5 +1524,4 @@ val LocalPlayerAwareWindowInsets = compositionLocalOf<WindowInsets> { error("No 
 val LocalDownloadUtil = staticCompositionLocalOf<DownloadUtil> { error("No DownloadUtil provided") }
 val LocalSyncUtils = staticCompositionLocalOf<SyncUtils> { error("No SyncUtils provided") }
 val LocalListenTogetherManager = staticCompositionLocalOf<com.metrolist.music.listentogether.ListenTogetherManager?> { null }
-val LocalChangelogState = staticCompositionLocalOf<MutableState<Boolean>> { error("No LocalChangelogState provided") }
 val LocalIsPlayerExpanded = compositionLocalOf { false }

@@ -17,18 +17,23 @@ val EnableDynamicIconKey = booleanPreferencesKey("enableDynamicIcon")
 val EnableHighRefreshRateKey = booleanPreferencesKey("enableHighRefreshRate")
 val DynamicThemeKey = booleanPreferencesKey("dynamicTheme")
 val SelectedThemeColorKey = intPreferencesKey("selectedThemeColor")
+val ClassicHomeTitleKey = stringPreferencesKey("classicHomeTitle")
+val MusieDefaultsVersionKey = intPreferencesKey("musieDefaultsVersion")
 val DarkModeKey = stringPreferencesKey("darkMode")
 val PureBlackKey = booleanPreferencesKey("pureBlack")
 val PureBlackMiniPlayerKey = booleanPreferencesKey("pureBlackMiniPlayer")
 val MiniPlayerOutlineKey = booleanPreferencesKey("miniPlayerOutline")
 val MiniPlayerBackgroundStyleKey = stringPreferencesKey("miniPlayerBackgroundStyle")
+val GlassNavigationKey = booleanPreferencesKey("glassNavigation")
+val GlassMiniPlayerKey = booleanPreferencesKey("glassMiniPlayer")
+val GlassPlayerKey = booleanPreferencesKey("glassPlayer")
 
 enum class MiniPlayerBackgroundStyle {
     DEFAULT,
-    TRANSPARENT,
     BLUR,
-    GRADIENT,
-    PURE_BLACK,
+    GLOW_ANIMATED,
+    LIVE_MESH,
+    LIQUID_GLASS,
 }
 
 val DensityScaleKey = floatPreferencesKey("density_scale_factor")
@@ -150,24 +155,6 @@ val PauseSearchHistoryKey = booleanPreferencesKey("pauseSearchHistory")
 val DisableScreenshotKey = booleanPreferencesKey("disableScreenshot")
 val CrashReportingEnabledKey = booleanPreferencesKey("crashReportingEnabled")
 
-val DiscordTokenKey = stringPreferencesKey("discordToken")
-val DiscordInfoDismissedKey = booleanPreferencesKey("discordInfoDismissed")
-val DiscordUsernameKey = stringPreferencesKey("discordUsername")
-val DiscordNameKey = stringPreferencesKey("discordName")
-val EnableDiscordRPCKey = booleanPreferencesKey("discordRPCEnable")
-val DiscordUseDetailsKey = booleanPreferencesKey("discordUseDetails")
-val DiscordAvatarKey = stringPreferencesKey("discordAvatar")
-val DiscordStatusKey = stringPreferencesKey("discordStatus")
-val DiscordButton1TextKey = stringPreferencesKey("discordButton1Text")
-val DiscordButton1VisibleKey = booleanPreferencesKey("discordButton1Visible")
-val DiscordButton1UrlKey = stringPreferencesKey("discordButton1Url")
-val DiscordButton2TextKey = stringPreferencesKey("discordButton2Text")
-val DiscordButton2VisibleKey = booleanPreferencesKey("discordButton2Visible")
-val DiscordButton2UrlKey = stringPreferencesKey("discordButton2Url")
-val DiscordActivityTypeKey = stringPreferencesKey("discordActivityType")
-val DiscordActivityNameKey = stringPreferencesKey("discordActivityName")
-val DiscordAdvancedModeKey = booleanPreferencesKey("discordAdvancedMode")
-
 // Google Cast
 val EnableGoogleCastKey = booleanPreferencesKey("enableGoogleCast")
 
@@ -206,6 +193,10 @@ val UseSpotifyHomeKey = booleanPreferencesKey("useSpotifyHome")
 val SpotifyHomeOnlyKey = booleanPreferencesKey("spotifyHomeOnly")
 val SpotifySyncLikesKey = booleanPreferencesKey("spotifySyncLikes")
 val HideYtmLikedSongsKey = booleanPreferencesKey("hideYtmLikedSongs")
+val SpotifyClientIdKey = stringPreferencesKey("spotifyClientId")
+val SpotifyRefreshTokenKey = stringPreferencesKey("spotifyRefreshToken")
+val SpotifyOAuthVerifierKey = stringPreferencesKey("spotifyOAuthVerifier")
+val SpotifyOAuthStateKey = stringPreferencesKey("spotifyOAuthState")
 val SpotifySpDcKey = stringPreferencesKey("spotifySpDc")
 val SpotifySpKeyKey = stringPreferencesKey("spotifySpKey")
 val SpotifyAccessTokenKey = stringPreferencesKey("spotifyAccessToken")
@@ -282,8 +273,6 @@ val LastAlbumSyncKey = longPreferencesKey("last_album_sync")
 val LastArtistSyncKey = longPreferencesKey("last_artist_sync")
 val LastPlaylistSyncKey = longPreferencesKey("last_playlist_sync")
 val LastFullSyncKey = longPreferencesKey("last_full_sync")
-val LastWeeklyMostPlaylistSyncKey = longPreferencesKey("last_weekly_most_playlist_sync")
-val LastMonthlyMostPlaylistSyncKey = longPreferencesKey("last_monthly_most_playlist_sync")
 
 // Sync cooldown in seconds (30 minutes)
 const val SYNC_COOLDOWN = 30 * 60L
@@ -480,6 +469,7 @@ enum class PreferredLyricsProvider {
 
 enum class PlayerButtonsStyle {
     DEFAULT,
+    WHITE,
     PRIMARY,
     TERTIARY,
 }
@@ -488,6 +478,10 @@ enum class PlayerBackgroundStyle {
     DEFAULT,
     GRADIENT,
     BLUR,
+    GLOW_ANIMATED,
+    APPLE_MUSIC,
+    LIVE_MESH,
+    LIQUID_GLASS,
 }
 
 val TopSize = stringPreferencesKey("topSize")

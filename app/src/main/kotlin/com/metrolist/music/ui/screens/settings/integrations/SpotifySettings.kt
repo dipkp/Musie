@@ -64,6 +64,7 @@ import com.metrolist.music.constants.QobuzKennyEndpointKey
 import com.metrolist.music.constants.QobuzSquidEndpointKey
 import com.metrolist.music.constants.QobuzTryptEndpointKey
 import com.metrolist.music.constants.SpotifyAccessTokenKey
+import com.metrolist.music.constants.SpotifyRefreshTokenKey
 import com.metrolist.music.constants.SpotifySpDcKey
 import com.metrolist.music.constants.SpotifySpKeyKey
 import com.metrolist.music.constants.HideYtmLikedSongsKey
@@ -108,6 +109,7 @@ fun SpotifySettings(
 ) {
     var spotifyUsername by rememberPreference(SpotifyUsernameKey, "")
     var spotifyAccessToken by rememberPreference(SpotifyAccessTokenKey, "")
+    var spotifyRefreshToken by rememberPreference(SpotifyRefreshTokenKey, "")
     var spotifySpDc by rememberPreference(SpotifySpDcKey, "")
     var spotifySpKey by rememberPreference(SpotifySpKeyKey, "")
     var spotifyTokenExpiry by rememberPreference(SpotifyTokenExpiryKey, 0L)
@@ -118,8 +120,8 @@ fun SpotifySettings(
         defaultValue = false,
     )
 
-    val isLoggedIn = remember(spotifyAccessToken, spotifySpDc) {
-        spotifyAccessToken.isNotEmpty() && spotifySpDc.isNotEmpty()
+    val isLoggedIn = remember(spotifyAccessToken, spotifySpDc, spotifyRefreshToken) {
+        spotifyAccessToken.isNotEmpty() && (spotifySpDc.isNotEmpty() || spotifyRefreshToken.isNotEmpty())
     }
 
     val context = LocalContext.current
@@ -157,6 +159,7 @@ fun SpotifySettings(
                 if (isLoggedIn) {
                     OutlinedButton(onClick = {
                         spotifyAccessToken = ""
+                        spotifyRefreshToken = ""
                         spotifySpDc = ""
                         spotifySpKey = ""
                         spotifyTokenExpiry = 0L
