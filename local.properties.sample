@@ -8,5 +8,5 @@ LASTFM_SECRET=
 
 # Optional: enables GitHub issue crash reporting for local builds.
 # Leave commented unless you have a token scoped to the target repository.
-# CRASH_REPORT_REPO=francescograzioso/Meld
+# CRASH_REPORT_REPO=dipkp/Musie
 # CRASH_REPORT_TOKEN=

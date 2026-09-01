@@ -56,7 +56,7 @@ jobs:
           # Without these the in-app crash/ANR reporter silently disables itself
           # (CrashReporter.isEnabledSafe), so tester builds report nothing.
           CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
-          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'FrancescoGrazioso/Meld' }}
+          CRASH_REPORT_REPO: ${{ vars.CRASH_REPORT_REPO || 'dipkp/Musie' }}
 
       - name: Sign APK
         uses: ilharp/sign-android-release@v2.0.0
