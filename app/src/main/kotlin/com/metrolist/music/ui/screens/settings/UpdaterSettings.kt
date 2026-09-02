@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -42,6 +44,8 @@ import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.Updater
+import com.metrolist.music.utils.AppUpdateInstaller
+import com.metrolist.music.utils.ReleaseInfo
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -55,12 +59,16 @@ fun UpdaterScreen(navController: NavController) {
     var checking by remember { mutableStateOf(false) }
     var resultText by remember { mutableStateOf<String?>(null) }
     var resultIsError by remember { mutableStateOf(false) }
+    var availableRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
+    var installing by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     fun checkNow() {
         if (checking) return
         scope.launch {
             checking = true
+            availableRelease = null
             resultText = null
             val result = withContext(Dispatchers.IO) { Updater.checkForUpdate(forceRefresh = true) }
             result.fold(
@@ -69,7 +77,10 @@ fun UpdaterScreen(navController: NavController) {
                     resultText =
                         when {
                             release == null -> "No published Musie release was found."
-                            available -> "Musie ${release.versionName} is available."
+                            available -> {
+                                availableRelease = release
+                                "Musie ${release.tagName.removePrefix("v")} is available."
+                            }
                             else -> "Musie is up to date (${BuildConfig.VERSION_NAME})."
                         }
                 },
@@ -145,6 +156,45 @@ fun UpdaterScreen(navController: NavController) {
                 color = if (resultIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 12.dp),
             )
+        }
+        availableRelease?.let { release ->
+            val asset = release.assets.firstOrNull {
+                it.downloadUrl == Updater.getDownloadUrlForCurrentVariant(release)
+            }
+            if (asset != null) {
+                Spacer(Modifier.height(12.dp))
+                FilledTonalButton(
+                    enabled = !installing,
+                    onClick = {
+                        scope.launch {
+                            installing = true
+                            resultIsError = false
+                            resultText = "Downloading ${asset.name}…"
+                            runCatching {
+                                AppUpdateInstaller.downloadAndInstall(context, asset.downloadUrl, asset.name)
+                            }.onFailure {
+                                resultIsError = true
+                                resultText = "Update download failed: ${it.message ?: "unknown error"}"
+                            }
+                            installing = false
+                        }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                ) {
+                    if (installing) {
+                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.height(20.dp))
+                    } else {
+                        Text("Download and install")
+                    }
+                }
+            } else {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "No compatible APK was attached to this release.",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+            }
         }
         Spacer(Modifier.height(32.dp))
     }

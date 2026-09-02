@@ -26,6 +26,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -59,6 +60,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.contentColorFor
@@ -147,6 +149,7 @@ import com.metrolist.music.constants.SpotifyUserIdKey
 import com.metrolist.music.constants.SpotifyUsernameKey
 import com.metrolist.music.constants.MiniPlayerBottomSpacing
 import com.metrolist.music.constants.MiniPlayerHeight
+import com.metrolist.music.constants.MusieWelcomeDismissedKey
 import com.metrolist.music.constants.NavigationBarHeight
 import com.metrolist.music.constants.PauseListenHistoryKey
 import com.metrolist.music.constants.PauseSearchHistoryKey
@@ -174,6 +177,7 @@ import com.metrolist.music.ui.component.AppNavigationRail
 import com.metrolist.music.ui.component.BottomSheetMenu
 import com.metrolist.music.ui.component.BottomSheetPage
 import com.metrolist.music.ui.component.ClassicFloatingNavigationToolbar
+import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.rememberBottomSheetState
@@ -581,6 +585,45 @@ class MainActivity : ComponentActivity() {
             pureBlack = pureBlack,
             themeColor = themeColor,
         ) {
+            val (welcomeDismissed, setWelcomeDismissed) =
+                rememberPreference(MusieWelcomeDismissedKey, defaultValue = false)
+
+            if (!welcomeDismissed) {
+                DefaultDialog(
+                    onDismiss = { setWelcomeDismissed(true) },
+                    icon = {
+                        Image(
+                            painter = painterResource(R.drawable.musie_logo_foreground),
+                            contentDescription = null,
+                            modifier = Modifier.size(88.dp),
+                        )
+                    },
+                    title = { Text("Welcome to Musie") },
+                    buttons = {
+                        TextButton(onClick = { setWelcomeDismissed(true) }) {
+                            Text("Start Musie")
+                        }
+                    },
+                ) {
+                    Text(
+                        text = "Musie ${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    Text(
+                        text = "A modern music player created by Dipraksh (Dkpfy).",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    Text(
+                        text = "This introduction is shown only once.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+            }
+
             BoxWithConstraints(
                 modifier =
                     Modifier
