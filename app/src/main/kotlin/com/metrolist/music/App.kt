@@ -257,7 +257,7 @@ class App :
             // Player appearance and gestures
             settings[UseNewMiniPlayerDesignKey] = true
             settings[MiniPlayerBackgroundStyleKey] = MiniPlayerBackgroundStyle.BLUR.name
-            settings[PlayerBackgroundStyleKey] = PlayerBackgroundStyle.APPLE_MUSIC.name
+            settings[PlayerBackgroundStyleKey] = PlayerBackgroundStyle.GLOW_ANIMATED.name
             settings[UseNewPlayerDesignKey] = false
             settings[CropAlbumArtKey] = true
             settings[SliderStyleKey] = SliderStyle.WAVY.name
@@ -427,7 +427,7 @@ class App :
     }
 
     companion object {
-        private const val MUSIE_DEFAULTS_VERSION = 2
+        private const val MUSIE_DEFAULTS_VERSION = 3
 
         /** Spotify match-cache rows older than this are evicted on startup. */
         private const val SPOTIFY_MATCH_TTL_MS = 90L * 24 * 60 * 60 * 1000 // 90 days
