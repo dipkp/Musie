@@ -8,7 +8,10 @@ package com.metrolist.music.utils
 import com.metrolist.music.BuildConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
+import io.ktor.http.isSuccess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -40,6 +43,20 @@ object Updater {
     
     private const val CHECK_INTERVAL_MILLIS = 2 * 60 * 60 * 1000L // 2 hours
     private const val GITHUB_API_BASE = "https://api.github.com/repos/dipkp/Musie"
+
+    private suspend fun fetchGithubJson(url: String): String {
+        val response = client.get(url) {
+            header(HttpHeaders.UserAgent, "Musie/${BuildConfig.VERSION_NAME} Android")
+            header(HttpHeaders.Accept, "application/vnd.github+json")
+            header("X-GitHub-Api-Version", "2022-11-28")
+        }
+        val body = response.bodyAsText()
+        if (!response.status.isSuccess()) {
+            val message = runCatching { JSONObject(body).optString("message") }.getOrNull()
+            error("GitHub update service returned ${response.status.value}${message?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""}")
+        }
+        return body
+    }
 
     /**
      * Compares two version strings.
@@ -128,9 +145,12 @@ object Updater {
                     return@runCatching cachedReleaseInfo!!
                 }
                 
-                val response = client.get("$GITHUB_API_BASE/releases/latest")
-                    .bodyAsText()
+                val response = fetchGithubJson("$GITHUB_API_BASE/releases/latest")
                 val json = JSONObject(response)
+
+                if (!json.has("tag_name")) {
+                    error("Invalid update response: release tag is missing")
+                }
                 
                 val releaseInfo = ReleaseInfo(
                     tagName = json.getString("tag_name"),
@@ -161,8 +181,7 @@ object Updater {
                 var hasMore = true
                 
                 while (hasMore && page <= 10) { // Limit to 10 pages
-                    val response = client.get("$GITHUB_API_BASE/releases?page=$page&per_page=30")
-                        .bodyAsText()
+                    val response = fetchGithubJson("$GITHUB_API_BASE/releases?page=$page&per_page=30")
                     val json = JSONArray(response)
                     
                     if (json.length() == 0) {

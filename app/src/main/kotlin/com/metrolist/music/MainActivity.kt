@@ -91,6 +91,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastAny
@@ -599,27 +600,19 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     title = { Text("Welcome to Musie") },
-                    buttons = {
-                        TextButton(onClick = { setWelcomeDismissed(true) }) {
-                            Text("Start Musie")
-                        }
-                    },
                 ) {
                     Text(
                         text = "Musie ${BuildConfig.VERSION_NAME}",
                         style = MaterialTheme.typography.titleLarge,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                     Text(
-                        text = "A modern music player created by Dipraksh (Dkpfy).",
+                        text = "Created by Dipraksh",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    Text(
-                        text = "This introduction is shown only once.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 12.dp),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     )
                 }
             }

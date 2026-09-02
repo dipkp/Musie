@@ -20,7 +20,7 @@ val SelectedThemeColorKey = intPreferencesKey("selectedThemeColor")
 val ClassicHomeTitleKey = stringPreferencesKey("classicHomeTitle")
 val MusieDefaultsVersionKey = intPreferencesKey("musieDefaultsVersion")
 // Versioned so existing Musie users also receive the new one-time introduction once.
-val MusieWelcomeDismissedKey = booleanPreferencesKey("musieWelcomeDismissedV0810")
+val MusieWelcomeDismissedKey = booleanPreferencesKey("musieWelcomeDismissedV0811")
 val DarkModeKey = stringPreferencesKey("darkMode")
 val PureBlackKey = booleanPreferencesKey("pureBlack")
 val PureBlackMiniPlayerKey = booleanPreferencesKey("pureBlackMiniPlayer")
