@@ -213,6 +213,10 @@
     <string name="edit_playlist_cover_note_wait">After selecting an image, please wait a moment for the new cover to appear in your playlist</string>
     <string name="choose_from_library">Choose from library</string>
     <string name="remove_custom_image">Remove custom image</string>
+    <string name="choose_from_playlist">Choose from playlist</string>
+    <string name="use_auto_collage">Use automatic collage</string>
+    <string name="search_playlist_artwork">Search songs or artists</string>
+    <string name="playlist_artwork">Playlist artwork</string>
 
     <!-- General -->
     <string name="general">General</string>

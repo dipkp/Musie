@@ -26,6 +26,9 @@ import com.metrolist.music.R
 @Composable
 fun CustomThumbnailMenu(
     onEdit: () -> Unit,
+    onChooseFromPlaylist: () -> Unit,
+    onUseCollage: () -> Unit,
+    showRemove: Boolean,
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -55,6 +58,40 @@ fun CustomThumbnailMenu(
             )
         }
         item {
+            ListItem(
+                headlineContent = {
+                    Text(text = stringResource(R.string.choose_from_playlist))
+                },
+                leadingContent = {
+                    Icon(
+                        painter = painterResource(R.drawable.queue_music),
+                        contentDescription = null,
+                    )
+                },
+                modifier = Modifier.clickable {
+                    onChooseFromPlaylist()
+                    onDismiss()
+                },
+            )
+        }
+        item {
+            ListItem(
+                headlineContent = {
+                    Text(text = stringResource(R.string.use_auto_collage))
+                },
+                leadingContent = {
+                    Icon(
+                        painter = painterResource(R.drawable.grid_view),
+                        contentDescription = null,
+                    )
+                },
+                modifier = Modifier.clickable {
+                    onUseCollage()
+                    onDismiss()
+                },
+            )
+        }
+        if (showRemove) item {
             ListItem(
                 headlineContent = { 
                     Text(text = stringResource(R.string.remove_custom_image)) 

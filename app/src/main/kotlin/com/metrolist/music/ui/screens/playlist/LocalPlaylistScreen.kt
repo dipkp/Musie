@@ -16,8 +16,10 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +36,9 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -72,6 +77,7 @@ import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -90,6 +96,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.util.fastAny
 import androidx.compose.ui.util.fastForEachIndexed
 import androidx.compose.ui.util.fastForEachReversed
@@ -875,6 +882,78 @@ fun LocalPlaylistScreen(
 }
 
 @Composable
+private fun PlaylistArtworkPickerDialog(
+    songs: List<PlaylistSong>,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val artwork =
+        remember(songs, query) {
+            songs
+                .asSequence()
+                .filter { item ->
+                    query.isBlank() ||
+                        item.song.song.title.contains(query, ignoreCase = true) ||
+                        item.song.artists.any { it.name.contains(query, ignoreCase = true) }
+                }
+                .filter { it.song.thumbnailUrl != null }
+                .distinctBy { it.song.thumbnailUrl }
+                .toList()
+        }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 8.dp,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    text = stringResource(R.string.playlist_artwork),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(14.dp))
+                TextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text(stringResource(R.string.search_playlist_artwork)) },
+                    leadingIcon = {
+                        Icon(painterResource(R.drawable.search), contentDescription = null)
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(16.dp))
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.height(390.dp),
+                ) {
+                    items(artwork, key = { it.song.id }) { item ->
+                        AsyncImage(
+                            model = item.song.thumbnailUrl,
+                            contentDescription = item.song.song.title,
+                            contentScale = ContentScale.Crop,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { onSelect(item.song.thumbnailUrl!!) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun LocalPlaylistHeader(
     playlist: Playlist,
     songs: List<PlaylistSong>,
@@ -908,14 +987,21 @@ fun LocalPlaylistHeader(
     val editable: Boolean = playlist.playlist.isEditable
 
     val overrideThumbnail = remember { mutableStateOf<String?>(null) }
-    var isCustomThumbnail: Boolean =
-        playlist.thumbnails.firstOrNull()?.let {
-            it.contains("studio_square_thumbnail") || it.contains("content://com.metrolist.music")
-        } ?: false
+    var isCustomThumbnail by
+        remember(playlist.playlist.id, playlist.playlist.thumbnailUrl) {
+            mutableStateOf(
+                playlist.playlist.thumbnailUrl?.let {
+                    it.contains("studio_square_thumbnail") ||
+                        it.startsWith("content://") ||
+                        it.startsWith("file://")
+                } ?: false,
+            )
+        }
 
     val result = remember { mutableStateOf<Uri?>(null) }
     var pendingCropDestUri by remember { mutableStateOf<Uri?>(null) }
     var showEditNoteDialog by remember { mutableStateOf(false) }
+    var showArtworkPicker by remember { mutableStateOf(false) }
 
     val cropLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
@@ -1028,6 +1114,14 @@ fun LocalPlaylistHeader(
         }
     }
 
+    fun useLocalArtwork(url: String?) {
+        overrideThumbnail.value = url
+        isCustomThumbnail = url != null
+        database.query {
+            update(playlist.playlist.copy(thumbnailUrl = url))
+        }
+    }
+
     Column(
         modifier =
             modifier
@@ -1061,11 +1155,24 @@ fun LocalPlaylistHeader(
                 )
             }
         }
-        // Playlist Thumbnail(s) - Large centered with shadow
+        if (showArtworkPicker) {
+            PlaylistArtworkPickerDialog(
+                songs = songs,
+                onSelect = {
+                    useLocalArtwork(it)
+                    showArtworkPicker = false
+                },
+                onDismiss = { showArtworkPicker = false },
+            )
+        }
+        val displayedThumbnails =
+            overrideThumbnail.value?.let(::listOf) ?: playlist.thumbnails
+
+        // Spotify-style playlist cover: custom art or an automatic four-tile collage.
         Box(
             modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
         ) {
-            when (playlist.thumbnails.size) {
+            when (displayedThumbnails.size) {
                 0 -> {
                     Surface(
                         modifier =
@@ -1105,7 +1212,7 @@ fun LocalPlaylistHeader(
                         shape = RoundedCornerShape(3.dp),
                     ) {
                         AsyncImage(
-                            model = overrideThumbnail.value ?: playlist.thumbnails[0],
+                            model = displayedThumbnails[0],
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize(),
@@ -1116,8 +1223,7 @@ fun LocalPlaylistHeader(
                             visible = true,
                             alignment = Alignment.BottomEnd,
                             onClick = {
-                                if (isCustomThumbnail) {
-                                    menuState.show(
+                                menuState.show(
                                         {
                                             CustomThumbnailMenu(
                                                 onEdit = {
@@ -1127,6 +1233,9 @@ fun LocalPlaylistHeader(
                                                         ),
                                                     )
                                                 },
+                                                onChooseFromPlaylist = { showArtworkPicker = true },
+                                                onUseCollage = { useLocalArtwork(null) },
+                                                showRemove = isCustomThumbnail,
                                                 onRemove = {
                                                     when {
                                                         playlist.playlist.browseId == null -> {
@@ -1153,9 +1262,6 @@ fun LocalPlaylistHeader(
                                             )
                                         },
                                     )
-                                } else {
-                                    showEditNoteDialog = true
-                                }
                             },
                         )
                     }
@@ -1181,7 +1287,7 @@ fun LocalPlaylistHeader(
                                 Alignment.BottomEnd,
                             ).fastForEachIndexed { index, alignment ->
                                 AsyncImage(
-                                    model = playlist.thumbnails.getOrNull(index),
+                                    model = displayedThumbnails.getOrNull(index),
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier =
@@ -1197,8 +1303,7 @@ fun LocalPlaylistHeader(
                             visible = true,
                             alignment = Alignment.BottomEnd,
                             onClick = {
-                                if (isCustomThumbnail) {
-                                    menuState.show(
+                                menuState.show(
                                         {
                                             CustomThumbnailMenu(
                                                 onEdit = {
@@ -1208,6 +1313,9 @@ fun LocalPlaylistHeader(
                                                         ),
                                                     )
                                                 },
+                                                onChooseFromPlaylist = { showArtworkPicker = true },
+                                                onUseCollage = { useLocalArtwork(null) },
+                                                showRemove = isCustomThumbnail,
                                                 onRemove = {
                                                     when {
                                                         playlist.playlist.browseId == null -> {
@@ -1234,9 +1342,6 @@ fun LocalPlaylistHeader(
                                             )
                                         },
                                     )
-                                } else {
-                                    showEditNoteDialog = true
-                                }
                             },
                         )
                     }
