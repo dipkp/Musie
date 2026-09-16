@@ -340,14 +340,13 @@ class MainActivity : ComponentActivity() {
                 BIND_AUTO_CREATE,
             )
             isServiceBound = true
+        } else {
+            playerConnection?.let(listenTogetherManager::setPlayerConnection)
         }
     }
 
     override fun onStop() {
-        // CRITICAL FIX: Do NOT unbind service or dispose playerConnection here!
-        // Just disconnect ListenTogetherManager to stop audio routing
-        // This prevents UI recomposition when switching apps
-        listenTogetherManager.setPlayerConnection(null)
+        // Keep room playback attached to the independently running music service.
         super.onStop()
     }
 

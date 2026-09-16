@@ -102,6 +102,7 @@ class ListenTogetherManager
         // Generation ID for track changes - incremented on each new track change
         // Used to prevent old coroutines from overwriting newer track loads
         private var currentTrackGeneration: Int = 0
+        private var lastRecoveryTrackId: String? = null
 
         // Pending sync to apply after buffering completes for guest
         private var pendingSyncState: SyncStatePayload? = null
@@ -752,6 +753,34 @@ class ListenTogetherManager
             lastRole = RoomRole.NONE
             lastSyncActionTime = 0L // Reset sync debouncing
             ++currentTrackGeneration // Increment to invalidate any pending track-change coroutines
+            lastRecoveryTrackId = null
+        }
+
+        private suspend fun waitForTrackReady(
+            player: Player,
+            trackId: String,
+            timeoutMs: Long = 15_000L,
+        ): Boolean {
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (System.currentTimeMillis() < deadline) {
+                // playQueue resolves the media item asynchronously, so a missing/old item
+                // immediately after dispatch is not a failed load.
+                if (player.currentMediaItem?.mediaId == trackId && player.playbackState == Player.STATE_READY) return true
+                delay(100)
+            }
+            return false
+        }
+
+        private fun recoverGuestTrackOnce(trackId: String) {
+            if (lastRecoveryTrackId == trackId) return
+            lastRecoveryTrackId = trackId
+            scope.launch {
+                delay(1_500)
+                if (isInRoom && !isHost && roomState.value?.currentTrack?.id == trackId) {
+                    Timber.tag(TAG).w("Guest track $trackId did not become ready; requesting fresh room state")
+                    requestSync()
+                }
+            }
         }
 
         private fun updateGuestMuteState() {
@@ -815,6 +844,7 @@ class ListenTogetherManager
 
             val connection = playerConnection ?: return
             val player = connection.player
+            if (player.currentMediaItem?.mediaId != pendingTrackId || player.playbackState != Player.STATE_READY) return
 
             Timber.tag(TAG).d("Applying pending sync: track=$pendingTrackId, pos=${pending.position}, play=${pending.isPlaying}")
             isSyncing = true
@@ -1297,6 +1327,9 @@ class ListenTogetherManager
                         player.setMediaItems(listOf(item), 0, position)
                     }
 
+                    // setMediaItems leaves ExoPlayer idle; start loading before waiting for READY.
+                    player.prepare()
+
                     connection.seekTo(position) // Always seek immediately to target pos
 
                     // Sync queue title
@@ -1310,14 +1343,7 @@ class ListenTogetherManager
                         // Manual sync/reconnect: apply play/pause immediately, no buffer protocol
                         Timber.tag(TAG).d("Bypass buffer: immediately applying play=$isPlaying at pos=$position")
 
-                        // Wait for player to be ready before seek/play
-                        var attempts = 0
-                        while (player.playbackState != Player.STATE_READY && attempts < 100) {
-                            delay(50)
-                            attempts++
-                        }
-                        if (player.playbackState == Player.STATE_READY) {
-                            Timber.tag(TAG).d("Player ready after ${attempts * 50}ms, seeking to $position")
+                        if (waitForTrackReady(player, currentTrack.id)) {
                             player.seekTo(position)
                             if (isPlaying) {
                                 connection.play()
@@ -1327,7 +1353,7 @@ class ListenTogetherManager
                                 Timber.tag(TAG).d("Bypass: PAUSE issued")
                             }
                         } else {
-                            Timber.tag(TAG).w("Player not ready after 5s timeout during bypass sync")
+                            Timber.tag(TAG).w("Guest track ${currentTrack.id} not ready during bypass sync")
                         }
 
                         // Clear sync state
@@ -1344,8 +1370,16 @@ class ListenTogetherManager
                                 position = position,
                                 lastUpdate = System.currentTimeMillis(),
                             )
-                        applyPendingSyncIfReady()
-                        client.sendBufferReady(currentTrack.id)
+                        if (waitForTrackReady(player, currentTrack.id)) {
+                            lastRecoveryTrackId = null
+                            applyPendingSyncIfReady()
+                            client.sendBufferReady(currentTrack.id)
+                        } else {
+                            Timber.tag(TAG).w("Guest track ${currentTrack.id} failed to become ready")
+                            bufferingTrackId = null
+                            pendingSyncState = null
+                            recoverGuestTrackOnce(currentTrack.id)
+                        }
                     }
                 } catch (e: Exception) {
                     Timber.tag(TAG).e(e, "Error applying playback state")
@@ -1425,31 +1459,17 @@ class ListenTogetherManager
                                     }
                                     connection.allowInternalSync = false
 
-                                    // Wait for player to be ready - monitor actual player state
-                                    var waitCount = 0
-                                    while (waitCount < 40) { // Max 2 seconds (40 * 50ms)
-                                        // Check generation again while waiting
-                                        if (currentTrackGeneration != generation) {
-                                            Timber
-                                                .tag(
-                                                    TAG,
-                                                ).d("Generation changed while waiting for player ready - aborting sync for ${track.id}")
-                                            isSyncing = false
-                                            return@launch
-                                        }
-                                        try {
-                                            val player = connection.player
-                                            if (player.playbackState == Player.STATE_READY) {
-                                                Timber.tag(TAG).d("Player ready after ${waitCount * 50}ms")
-                                                break
-                                            }
-                                        } catch (e: Exception) {
-                                            Timber.tag(TAG).e(e, "Error checking player state")
-                                            break
-                                        }
-                                        delay(50)
-                                        waitCount++
+                                    if (!waitForTrackReady(connection.player, track.id)) {
+                                        Timber.tag(TAG).w("Guest track ${track.id} failed to become ready")
+                                        connection.allowInternalSync = false
+                                        isSyncing = false
+                                        bufferingTrackId = null
+                                        pendingSyncState = null
+                                        recoverGuestTrackOnce(track.id)
+                                        return@launch
                                     }
+                                    if (currentTrackGeneration != generation) return@launch
+                                    lastRecoveryTrackId = null
 
                                     // Do NOT seek here; defer the exact seek until after the server signals buffer-complete
                                     // Ensure paused state before signaling ready
@@ -1482,6 +1502,8 @@ class ListenTogetherManager
                                 Timber.tag(TAG).e(e, "Failed to load track ${track.id}")
                                 playerConnection?.allowInternalSync = false
                                 isSyncing = false
+                                bufferingTrackId = null
+                                recoverGuestTrackOnce(track.id)
                             }
                     } catch (e: Exception) {
                         Timber.tag(TAG).e(e, "Error syncing to track")
